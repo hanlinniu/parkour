@@ -139,7 +139,7 @@ class Go2Node(UnitreeRos2Real):
                 self.obs_student[:, 6:8] = 0
                 self.depth_latent_and_yaw = self.depth_encoder_model(self.infos["depth"], self.obs_student)  #  output torch.Size([1, 34])
                 self.depth_latent = self.depth_latent_and_yaw[:, :-2]  # torch.Size([1, 32])
-                self.yaw = self.depth_latent_and_yaw[:, -2:]  # torch.Size([1, 2])
+                self.yaw = 0 * self.depth_latent_and_yaw[:, -2:]  # torch.Size([1, 2])
                 print("it is using depth camera, infos has depth info")
             else:
                 print("it is using depth camera, infos has no depth info")
@@ -178,7 +178,6 @@ class Go2Node(UnitreeRos2Real):
             self.use_sport_mode = True
             self.yaw = torch.zeros(1, 2, device=self.device)  # Initialize yaw to zeros
             self.depth_latent = torch.zeros(1, 32, device=self.device)  # Initialize depth_latent to zeros
-            self.reset_obs_buffers()
             self._sport_state_change(1)
             self._sport_mode_change(ROBOT_SPORT_API_ID_BALANCESTAND)
 

@@ -178,7 +178,6 @@ class Go2Node(UnitreeRos2Real):
             self.use_sport_mode = True
             self.yaw = torch.zeros(1, 2, device=self.device)  # Initialize yaw to zeros
             self.depth_latent = torch.zeros(1, 32, device=self.device)  # Initialize depth_latent to zeros
-            self.reset_obs_buffers()
             self._sport_state_change(1)
             self._sport_mode_change(ROBOT_SPORT_API_ID_BALANCESTAND)
 

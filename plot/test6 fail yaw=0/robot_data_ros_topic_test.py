@@ -534,7 +534,7 @@ class UnitreeRos2Real(Node):
         )   # [1,3]
 
         
-        # placeholder_base_ang_vel[2] = placeholder_base_ang_vel[2] + (self.low_state_buffer.imu_state.rpy[2]) * 0.3
+        placeholder_base_ang_vel[2] = placeholder_base_ang_vel[2] + (self.low_state_buffer.imu_state.rpy[2]) * 0.3
         # placeholder_base_ang_vel[2] = 0
         
 
@@ -617,15 +617,6 @@ class UnitreeRos2Real(Node):
         # Clip the observations
         self.obs_buffer = (torch.clamp(self.total_obs_buf, -self.clip_obs, self.clip_obs)).unsqueeze(0)
         return self.obs_buffer
-
-    def reset_obs_buffers(self):
-        self.step_count = 0
-        self.obs_buffer = torch.empty(0, device=self.model_device)
-        self.obs_history_buf = torch.empty(0, device=self.model_device)
-        self.total_obs_buf = torch.empty(0, device=self.model_device)
-        self.actions = torch.zeros(self.NUM_ACTIONS, device= self.model_device, dtype= torch.float32)
-        self.get_logger().info("Observation buffers have been reset!")
-
 
     def send_action(self, actions: torch.Tensor):
         if actions is not None:

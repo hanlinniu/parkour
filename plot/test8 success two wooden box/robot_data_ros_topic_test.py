@@ -618,15 +618,6 @@ class UnitreeRos2Real(Node):
         self.obs_buffer = (torch.clamp(self.total_obs_buf, -self.clip_obs, self.clip_obs)).unsqueeze(0)
         return self.obs_buffer
 
-    def reset_obs_buffers(self):
-        self.step_count = 0
-        self.obs_buffer = torch.empty(0, device=self.model_device)
-        self.obs_history_buf = torch.empty(0, device=self.model_device)
-        self.total_obs_buf = torch.empty(0, device=self.model_device)
-        self.actions = torch.zeros(self.NUM_ACTIONS, device= self.model_device, dtype= torch.float32)
-        self.get_logger().info("Observation buffers have been reset!")
-
-
     def send_action(self, actions: torch.Tensor):
         if actions is not None:
             if actions.shape != (1,12):
