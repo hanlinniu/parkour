@@ -135,6 +135,8 @@ class Go2Node(UnitreeRos2Real):
             else: self.infos["depth"] = None
 
             if self.infos["depth"] is not None:
+                print("self.loop_counter is ", self.loop_counter)
+                print("depth image is here!")
                 self.obs_student = self.obs[:, :53].clone()
                 self.obs_student[:, 6:8] = 0
                 self.depth_latent_and_yaw = self.depth_encoder_model(self.infos["depth"], self.obs_student)  #  output torch.Size([1, 34])
@@ -149,14 +151,14 @@ class Go2Node(UnitreeRos2Real):
 
             ####################################################################
             ##########################log yaw data##############################
-            # self.log_entry = [self.step_count,
-            #              self.obs[:, 6].item(),
-            #              self.obs[:, 7].item()]
-            # self.yaw_log.append(self.log_entry)
+            self.log_entry = [self.step_count,
+                         self.obs[:, 6].item(),
+                         self.obs[:, 7].item()]
+            self.yaw_log.append(self.log_entry)
 
-            # if self.step_count % 20 == 0:
-            #     save_path = os.path.expanduser("~/parkour/plot/yaw_log.npy")
-            #     np.save(save_path, np.array(self.yaw_log)) # shape: (step, 11)
+            if self.step_count % 20 == 0:
+                save_path = os.path.expanduser("~/parkour/plot/yaw_log.npy")
+                np.save(save_path, np.array(self.yaw_log)) # shape: (step, 11)
             ####################################################################
             
             
@@ -185,6 +187,7 @@ class Go2Node(UnitreeRos2Real):
 
 
 @torch.inference_mode()
+
 def main(args):
     rclpy.init()
 
@@ -202,6 +205,12 @@ def main(args):
     print("Loaded depth_encoder is:", depth_encoder)
     print("Loaded depth_actor is:", depth_actor)
     print("flat_depth_data is:", flat_depth_data)
+
+
+    # estimator.eval()
+    # depth_encoder.eval()
+    # depth_actor.eval()
+
 
     duration = 0.02  # for control frequency
     device = torch.device('cpu')
@@ -225,7 +234,7 @@ def main(args):
     
     env_node.start_main_loop_timer(duration=0.02)
     rclpy.spin(env_node)
-    rclpy.shuntdown()
+    rclpy.shutdown()
 
 if __name__ == "__main__":
     import argparse
