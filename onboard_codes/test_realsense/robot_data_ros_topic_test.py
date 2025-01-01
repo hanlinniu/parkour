@@ -144,7 +144,7 @@ class UnitreeRos2Real(Node):
         self.robot_class_name = robot_class_name
         self.low_state_topic = low_state_topic
         self.sport_mode_state_topic = sport_mode_state_topic
-        self.low_cmd_topic = low_cmd_topic
+        self.low_cmd_topic = low_cmd_topic if not dryrun else low_cmd_topic + "_dryrun_" + str(np.random.randint(0, 65535))
         self.joy_stick_topic = joy_stick_topic
         self.forward_depth_topic = forward_depth_topic
         self.forward_depth_embedding_topic = forward_depth_embedding_topic

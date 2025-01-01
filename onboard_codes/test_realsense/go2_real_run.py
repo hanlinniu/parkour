@@ -75,12 +75,11 @@ class Go2Node(UnitreeRos2Real):
         else:
             self.loop_counter += 1
             vision_obs = self._get_depth_obs()  # torch.Size([1, 58, 87])
-            obs = self.read_observation()
+            obs = self.read_observation()   # torch.Size([1, 753])
 
             if (self.loop_counter % 5 == 0) & (vision_obs is not None):
                 self.infos["depth"] = vision_obs.clone()
             else: self.infos["depth"] = None
-
 
             if self.infos["depth"] is not None:
                 obs_student = obs[:, :53].clone()
@@ -99,8 +98,8 @@ class Go2Node(UnitreeRos2Real):
             actions = self.depth_actor_model(obs_est.detach(), hist_encoding=True, scandots_latent=depth_latent)
             self.send_action(actions)
             
-        if (self.joy_stick_buffer.keys & self.WirelessButtons.L2):
-            self.get_logger().info("L2 pressed, use the stand policy")
+        if (self.joy_stick_buffer.keys & self.WirelessButtons.Y):
+            self.get_logger().info("Y pressed, use the stand policy")
             self.use_stand_policy = True
 
             # start_time = time.monotonic()
