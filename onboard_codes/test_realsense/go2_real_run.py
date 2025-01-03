@@ -121,7 +121,7 @@ class Go2Node(UnitreeRos2Real):
 def main(args):
     rclpy.init()
 
-    save_folder = os.path.expanduser("~/learning-parkour/legged_gym/legged_gym/scripts/saved_models")
+    save_folder = os.path.expanduser("~/parkour/onboard_codes/test_realsense/saved_models")
     estimator = load_model(folder_path=save_folder, filename="estimator.pth")
     depth_encoder = load_model(folder_path=save_folder, filename="depth_encoder.pth")
     depth_actor = load_model(folder_path=save_folder, filename="depth_actor.pth")
