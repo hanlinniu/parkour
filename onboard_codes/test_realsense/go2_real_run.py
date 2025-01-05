@@ -13,12 +13,12 @@ import torch
 import torch.nn.functional as F
 from torch.autograd import Variable
 
-# from rsl_rl import modules
+from rsl_rl import modules
 
 
 def load_model(folder_path, filename):
     model_path = os.path.join(folder_path, filename)
-    model = torch.load(model_path)  # Load the saved model
+    model = torch.load(model_path, map_location=torch.device('cuda:0'))  # Load the saved model
     return model
 
 
@@ -61,46 +61,62 @@ class Go2Node(UnitreeRos2Real):
         )
         
     def main_loop(self):
-        if (self.joy_stick_buffer.keys & self.WirelessButtons.L1) and self.use_stand_policy:
-            self.get_logger().info("L1 pressed, stop using stand policy")
-            self.use_stand_policy = False
-        if self.use_stand_policy:
-            obs = self._get_dof_pos_obs() # do not multiply by obs_scales["dof_pos"]
-            action = self.stand_model(obs)
-            if (action == 0).all():
-                self.get_logger().info("All actions are zero, it's time to switch to the policy", throttle_duration_sec= 1)
-                # else:
-                    # print("maximum dof error: {:.3f}".format(action.abs().max().item(), end= "\r"))
-            self.send_action(action / self.action_scale)
-        else:
-            self.loop_counter += 1
-            vision_obs = self._get_depth_obs()  # torch.Size([1, 58, 87])
-            obs = self.read_observation()   # torch.Size([1, 753])
+        # obs = self.read_observation()
+        obs = self._get_dof_pos_obs() # do not multiply by obs_scales["dof_pos"]
+        print("obs: ", obs)
+        action = self.stand_model(obs)
+        print("action: ", action)
+        if (action == 0).all():
+            self.get_logger().info("All actions are zero, it's time to switch to the policy", throttle_duration_sec= 1)
+            # else:
+                # print("maximum dof error: {:.3f}".format(action.abs().max().item(), end= "\r"))
+        self.send_action(action / self.action_scale)
+        # self.send_action(action)
 
-            if (self.loop_counter % 5 == 0) & (vision_obs is not None):
-                self.infos["depth"] = vision_obs.clone()
-            else: self.infos["depth"] = None
 
-            if self.infos["depth"] is not None:
-                obs_student = obs[:, :53].clone()
-                obs_student[:, 6:8] = 0
-                depth_latent_and_yaw = self.depth_encoder_model(self.infos["depth"], obs_student)  #  output torch.Size([1, 34])
-                depth_latent = depth_latent_and_yaw[:, :-2]  # torch.Size([1, 34])
-                yaw = depth_latent_and_yaw[:, -2:]  # torch.Size([1, 2])
-            else:
-                print("it is using depth camera, infos has no depth info")
+        # if (self.joy_stick_buffer.keys & self.WirelessButtons.L1) and self.use_stand_policy:
+        #     self.get_logger().info("L1 pressed, stop using stand policy")
+        #     self.use_stand_policy = False
+        # if self.use_stand_policy:
+        #     obs = self._get_dof_pos_obs() # do not multiply by obs_scales["dof_pos"]
+        #     action = self.stand_model(obs)
+        #     if (action == 0).all():
+        #         self.get_logger().info("All actions are zero, it's time to switch to the policy", throttle_duration_sec= 1)
+        #         # else:
+        #             # print("maximum dof error: {:.3f}".format(action.abs().max().item(), end= "\r"))
+        #     self.send_action(action / self.action_scale)
+        # else:
+        #     self.loop_counter += 1
+        #     vision_obs = self._get_depth_obs()  # torch.Size([1, 58, 87])
+        #     obs = self.read_observation()   # torch.Size([1, 753])
 
-            obs[:, 6:8] = 1.5*yaw
-            obs_est = obs.clone()
-            priv_states_estimated = self.estimator_model(obs_est[:, :53])         # output is 9, estimate velocity stuff
-            obs_est[:, 53+132:53+132+9] = priv_states_estimated
+        #     if (self.loop_counter % 5 == 0) & (vision_obs is not None):
+        #         self.infos["depth"] = vision_obs.clone()
+        #     else: self.infos["depth"] = None
 
-            actions = self.depth_actor_model(obs_est.detach(), hist_encoding=True, scandots_latent=depth_latent)
-            self.send_action(actions)
+        #     if self.infos["depth"] is not None:
+        #         obs_student = obs[:, :53].clone()
+        #         obs_student[:, 6:8] = 0
+        #         depth_latent_and_yaw = self.depth_encoder_model(self.infos["depth"], obs_student)  #  output torch.Size([1, 34])
+        #         depth_latent = depth_latent_and_yaw[:, :-2]  # torch.Size([1, 34])
+        #         yaw = depth_latent_and_yaw[:, -2:]  # torch.Size([1, 2])
+        #     else:
+        #         print("it is using depth camera, infos has no depth info")
+
+        #     obs[:, 6:8] = 1.5*yaw
+        #     obs_est = obs.clone()
+        #     priv_states_estimated = self.estimator_model(obs_est[:, :53])         # output is 9, estimate velocity stuff
+        #     obs_est[:, 53+132:53+132+9] = priv_states_estimated
+
+        #     actions = self.depth_actor_model(obs_est.detach(), hist_encoding=True, scandots_latent=depth_latent)
+        #     self.send_action(actions)
             
-        if (self.joy_stick_buffer.keys & self.WirelessButtons.Y):
-            self.get_logger().info("Y pressed, use the stand policy")
-            self.use_stand_policy = True
+        # if (self.joy_stick_buffer.keys & self.WirelessButtons.Y):
+        #     self.get_logger().info("Y pressed, use the stand policy")
+        #     self.use_stand_policy = True
+
+
+
 
             # start_time = time.monotonic()
             # obs = self.get_obs()
@@ -133,12 +149,13 @@ def main(args):
 
     duration = 0.02  # for control frequency
     device = torch.device('cuda:0')
-
+    print("Models are loaded")
     env_node = Go2Node(
-        "go2",
+        "Go2",
         model_device= device,
         dryrun= not args.nodryrun,
     )
+    print("Models are registered")
 
     zero_act_model = ZeroActModel()
     zero_act_model = torch.jit.script(zero_act_model)
@@ -149,7 +166,7 @@ def main(args):
         depth_encoder, 
         depth_actor
     )
-
+    
     env_node.start_main_loop_timer(duration=0.02)
     rclpy.spin(env_node)
     rclpy.shuntdown()
@@ -157,7 +174,7 @@ def main(args):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--nodryrun", action= "store_true", default= False, help= "Disable dryrun mode")
+    parser.add_argument("--nodryrun", action= "store_true", default= True, help= "Disable dryrun mode")
 
     args = parser.parse_args()
     main(args)
