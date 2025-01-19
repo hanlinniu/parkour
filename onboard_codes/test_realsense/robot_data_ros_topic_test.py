@@ -14,7 +14,7 @@ from unitree_go.msg import (
 from std_msgs.msg import Float32MultiArray
 from sensor_msgs.msg import Image, CameraInfo
 
-base_path = "/home/hanlin/parkour/onboard_codes/go2"
+base_path = "/home/unitree/parkour/onboard_codes/go2"
 if os.uname().machine in ["x86_64", "amd64"]:
     sys.path.append(os.path.join(base_path, "x86"))
 elif os.uname().machine == "aarch64":
@@ -89,8 +89,8 @@ class RobotCfgs:
                     "RR_calf_joint": -1.5
                 }
         
-        stiffness = 40
-        damping = 1
+        stiffness = 40.0
+        damping = 1.0
         
 
 class UnitreeRos2Real(Node):
@@ -119,8 +119,8 @@ class UnitreeRos2Real(Node):
             sport_mode_state_topic = "/sportmodestate",
             low_cmd_topic= "/lowcmd",
             joy_stick_topic= "/wirelesscontroller",
-            forward_depth_topic= "/camera/forward_depth", # if None and still need access, set to str "pyrealsense"
-            forward_depth_embedding_topic= "/forward_depth_embedding",
+            forward_depth_topic= None, # "/camera/forward_depth", # if None and still need access, set to str "pyrealsense"
+            forward_depth_embedding_topic= None,  # "/forward_depth_embedding",
             cfg= dict(),
             lin_vel_deadband= 0.1,
             ang_vel_deadband= 0.1,
@@ -133,7 +133,7 @@ class UnitreeRos2Real(Node):
             replace_obs_with_embeddings= [], # a list of strings, e.g. ["forward_depth"] then the corrseponding obs will be processed by _get_forward_depth_embedding_obs()
             move_by_wireless_remote= True, # if True, the robot will be controlled by a wireless remote
             model_device= "cpu",
-            dof_pos_protect_ratio= 1.1, # if the dof_pos is out of the range of this ratio, the process will shutdown.
+            dof_pos_protect_ratio= 1.2, # if the dof_pos is out of the range of this ratio, the process will shutdown.
             robot_class_name= "Go2",
             dryrun= True, # if True, the robot will not send commands to the real robot
         ):
@@ -148,6 +148,7 @@ class UnitreeRos2Real(Node):
         self.joy_stick_topic = joy_stick_topic
         self.forward_depth_topic = forward_depth_topic
         self.forward_depth_embedding_topic = forward_depth_embedding_topic
+        self.dryrun = dryrun
 
         self.lin_vel_deadband = lin_vel_deadband
         self.ang_vel_deadband = ang_vel_deadband
@@ -196,7 +197,7 @@ class UnitreeRos2Real(Node):
 
         for i in range(self.NUM_DOF):
             name = self.dof_names[i]
-            default_joint_angle = getattr(RobotCfgs, self.robot_class_name).default_joint_angle[name]
+            default_joint_angle = getattr(RobotCfgs, self.robot_class_name).default_joint_angles[name]
             # in simulation order.
             self.default_dof_pos[i] = default_joint_angle
 
@@ -292,6 +293,8 @@ class UnitreeRos2Real(Node):
             if self.dof_pos_[0, sim_idx] > self.joint_pos_protect_high[sim_idx] or \
                 self.dof_pos_[0, sim_idx] < self.joint_pos_protect_low[sim_idx]:
                 self.get_logger().error(f"Joint {sim_idx}(sim), {real_idx}(real) position out of range at {self.low_state_buffer.motor_state[real_idx].q}")
+                self.get_logger().error(f"self.joint_pos_protect_low[sim_idx] is {self.joint_pos_protect_low[sim_idx]}")
+                self.get_logger().error(f"self.joint_pos_protect_high[sim_idx] is {self.joint_pos_protect_high[sim_idx]}")
                 self.get_logger().error("The motors and this process shuts down.")
                 self._turn_off_motors()
                 raise SystemExit()
@@ -397,7 +400,7 @@ class UnitreeRos2Real(Node):
         contact_filt = [contact[1], contact[0], contact[3], contact[2]]
         self.contact_filt = np.logical_or(contact_filt, self.last_contacts)
         self.last_contacts = contact_filt
-        final_contact_vec = self.contact_filt.float().unsqueeze(0).to(self.model_device)
+        final_contact_vec = torch.tensor(self.contact_filt).float().unsqueeze(0).to(self.model_device)
         return final_contact_vec
 
 
@@ -439,6 +442,7 @@ class UnitreeRos2Real(Node):
             self.reindex((self.dof_pos_ - self.default_dof_pos.unsqueeze(0)) * 1.0),
             device=self.model_device, dtype=torch.float32
         )
+        print("placeholder_dof_pos: ", placeholder_dof_pos)
         placeholder_dof_vel = torch.tensor(
             self.reindex(self.dof_vel_ * 0.05),
             device=self.model_device, dtype=torch.float32
@@ -470,10 +474,14 @@ class UnitreeRos2Real(Node):
         ])  # size 53
 
         # Convert other arrays to tensors
-        priv_explicit = torch.tensor(
-            self.sport_mode_state_buffer.velocity * 2.0 + np.zeros(6),
-            device=self.model_device, dtype=torch.float32
+        velocity_tensor = torch.tensor(
+            self.sport_mode_state_buffer.velocity * 2.0, 
+            dtype=torch.float32, 
+            device=self.model_device
         )
+        zeros_tensor = torch.zeros(6, dtype=torch.float32, device=self.model_device)
+        priv_explicit = torch.cat([velocity_tensor, zeros_tensor])
+
         priv_latent = torch.tensor(
             [0.0000,  0.0000,  0.0000,  0.0000,  1.5996,  0.0688, -0.1073,  0.0870,
             -0.0627,  0.1623,  0.0584, -0.1670,  0.0028,  0.0276,  0.1598,  0.1258,
@@ -508,9 +516,9 @@ class UnitreeRos2Real(Node):
         robot_coordinates_action = clipped_scaled_action + self.default_dof_pos.unsqueeze(0)
         self._publish_legs_cmd(robot_coordinates_action[0])
 
-    def clip_action_before_scale(self):
-        action = torch.clip(action, -self.clip_actions, self.clip_actions)
-        return action
+    def clip_action_before_scale(self, actions):
+        actions = torch.clip(actions, -self.clip_actions, self.clip_actions)
+        return actions
     
     def clip_by_torque_limit(self, actions_scaled):
         """ Different from simulation, we reverse the process and clip the actions directly,
