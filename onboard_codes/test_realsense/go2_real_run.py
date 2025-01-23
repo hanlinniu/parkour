@@ -98,30 +98,41 @@ class Go2Node(UnitreeRos2Real):
             if (self.joy_stick_buffer.keys & self.WirelessButtons.Y):
                 self.get_logger().info("Y pressed, use the parkour policy")
                 self.use_stand_policy = True
-                self.loop_counter += 1
-                vision_obs = self._get_depth_obs()  # torch.Size([1, 58, 87])
-                obs = self.read_observation()   # torch.Size([1, 753])
 
-                if (self.loop_counter % 5 == 0) & (vision_obs is not None):
-                    self.infos["depth"] = vision_obs.clone()
-                else: self.infos["depth"] = None
+                while self.use_stand_policy:
+                    self.loop_counter += 1
+                    vision_obs = self._get_depth_obs()  # torch.Size([1, 58, 87])
+                    obs = self.read_observation()   # torch.Size([1, 753])
 
-                if self.infos["depth"] is not None:
-                    obs_student = obs[:, :53].clone()
-                    obs_student[:, 6:8] = 0
-                    depth_latent_and_yaw = self.depth_encoder_model(self.infos["depth"], obs_student)  #  output torch.Size([1, 34])
-                    depth_latent = depth_latent_and_yaw[:, :-2]  # torch.Size([1, 34])
-                    yaw = depth_latent_and_yaw[:, -2:]  # torch.Size([1, 2])
-                else:
-                    print("it is using depth camera, infos has no depth info")
+                    if (self.loop_counter % 5 == 0) & (vision_obs is not None):
+                        self.infos["depth"] = vision_obs.clone()
+                    else: self.infos["depth"] = None
 
-                obs[:, 6:8] = 1.5*yaw
-                obs_est = obs.clone()
-                priv_states_estimated = self.estimator_model(obs_est[:, :53])         # output is 9, estimate velocity stuff
-                obs_est[:, 53+132:53+132+9] = priv_states_estimated
+                    if self.infos["depth"] is not None:
+                        obs_student = obs[:, :53].clone()
+                        obs_student[:, 6:8] = 0
+                        depth_latent_and_yaw = self.depth_encoder_model(self.infos["depth"], obs_student)  #  output torch.Size([1, 34])
+                        depth_latent = depth_latent_and_yaw[:, :-2]  # torch.Size([1, 34])
+                        yaw = depth_latent_and_yaw[:, -2:]  # torch.Size([1, 2])
+                    else:
+                        print("it is using depth camera, infos has no depth info")
 
-                actions = self.depth_actor_model(obs_est.detach(), hist_encoding=True, scandots_latent=depth_latent)
-                self.send_action(actions)
+                    obs[:, 6:8] = 1.5*yaw
+                    obs_est = obs.clone()
+                    priv_states_estimated = self.estimator_model(obs_est[:, :53])         # output is 9, estimate velocity stuff
+                    obs_est[:, 53+132:53+132+9] = priv_states_estimated
+
+                    actions = self.depth_actor_model(obs_est.detach(), hist_encoding=True, scandots_latent=depth_latent)
+                    print("actions: ", actions)
+                    # self.send_action(actions)
+
+                    if (self.joy_stick_buffer.keys & self.WirelessButtons.R2):
+                        self.get_logger().info("R2 pressed, stop using parkour policy, switch to sport mode")
+                        self.use_stand_policy = False
+                        self.use_sport_mode = True
+                        self._sport_state_change(1)
+                        self._sport_mode_change(ROBOT_SPORT_API_ID_BALANCESTAND)
+                        break
 
         # if (self.joy_stick_buffer.keys & self.WirelessButtons.L1) and self.use_stand_policy:
         #     self.get_logger().info("L1 pressed, stop using stand policy")
