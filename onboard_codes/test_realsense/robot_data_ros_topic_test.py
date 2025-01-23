@@ -499,7 +499,7 @@ class UnitreeRos2Real(Node):
             self.reindex((self.dof_pos_ - self.default_dof_pos.unsqueeze(0)) * 1.0),
             device=self.model_device, dtype=torch.float32
         )
-        print("placeholder_dof_pos: ", placeholder_dof_pos)
+        # print("placeholder_dof_pos: ", placeholder_dof_pos)
         placeholder_dof_vel = torch.tensor(
             self.reindex(self.dof_vel_ * 0.05),
             device=self.model_device, dtype=torch.float32

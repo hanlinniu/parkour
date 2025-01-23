@@ -73,6 +73,7 @@ class Go2Node(UnitreeRos2Real):
                 self.get_logger().info("L2 pressed, Robot sit down")
                 self._sport_mode_change(ROBOT_SPORT_API_ID_STANDDOWN)
             if (self.joy_stick_buffer.keys & self.WirelessButtons.R1):
+                self.get_logger().info("R1 pressed, Switch to stand policy")
                 self.use_sport_mode = False
                 self._sport_state_change(0)
                 self.use_stand_policy = True
@@ -93,29 +94,34 @@ class Go2Node(UnitreeRos2Real):
                 self._sport_state_change(1)
                 self._sport_mode_change(ROBOT_SPORT_API_ID_BALANCESTAND)
 
-        # if (self.joy_stick_buffer.keys & self.WirelessButtons.R1) and self.use_stand_policy:
-        #     obs = self._get_dof_pos_obs() # do not multiply by obs_scales["dof_pos"]
-        #     action = self.stand_model(obs)
-        #     if (action == 0).all():
-        #         self.get_logger().info("All actions are zero, it's time to switch to the policy", throttle_duration_sec= 1)
-        #         # else:
-        #             # print("maximum dof error: {:.3f}".format(action.abs().max().item(), end= "\r"))
-        #     self.send_action(action / self.action_scale)
-        #     self._sport_state_change(0)
 
-        # if (self.joy_stick_buffer.keys & self.WirelessButtons.L1) and self.use_stand_policy:
-        #     self.get_logger().info("L1 pressed")
-        #     self.use_stand_policy = False
-        #     # self._sport_state_change(1)
-        #     self._sport_mode_change(1005)
+            if (self.joy_stick_buffer.keys & self.WirelessButtons.Y):
+                self.get_logger().info("Y pressed, use the parkour policy")
+                self.use_stand_policy = True
+                self.loop_counter += 1
+                vision_obs = self._get_depth_obs()  # torch.Size([1, 58, 87])
+                obs = self.read_observation()   # torch.Size([1, 753])
 
-        # if (self.joy_stick_buffer.keys & self.WirelessButtons.L2) and self.use_stand_policy==False:
-        #     self.get_logger().info("L2 pressed")
-        #     self.use_stand_policy = True
-        #     # self._sport_state_change(0)
-        #     self._sport_mode_change(1004)
-            
+                if (self.loop_counter % 5 == 0) & (vision_obs is not None):
+                    self.infos["depth"] = vision_obs.clone()
+                else: self.infos["depth"] = None
 
+                if self.infos["depth"] is not None:
+                    obs_student = obs[:, :53].clone()
+                    obs_student[:, 6:8] = 0
+                    depth_latent_and_yaw = self.depth_encoder_model(self.infos["depth"], obs_student)  #  output torch.Size([1, 34])
+                    depth_latent = depth_latent_and_yaw[:, :-2]  # torch.Size([1, 34])
+                    yaw = depth_latent_and_yaw[:, -2:]  # torch.Size([1, 2])
+                else:
+                    print("it is using depth camera, infos has no depth info")
+
+                obs[:, 6:8] = 1.5*yaw
+                obs_est = obs.clone()
+                priv_states_estimated = self.estimator_model(obs_est[:, :53])         # output is 9, estimate velocity stuff
+                obs_est[:, 53+132:53+132+9] = priv_states_estimated
+
+                actions = self.depth_actor_model(obs_est.detach(), hist_encoding=True, scandots_latent=depth_latent)
+                self.send_action(actions)
 
         # if (self.joy_stick_buffer.keys & self.WirelessButtons.L1) and self.use_stand_policy:
         #     self.get_logger().info("L1 pressed, stop using stand policy")
