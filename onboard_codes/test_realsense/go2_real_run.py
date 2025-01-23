@@ -14,7 +14,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 
 from rsl_rl import modules
-
+from sport_api_constants import *
 
 def load_model(folder_path, filename):
     model_path = os.path.join(folder_path, filename)
@@ -52,7 +52,8 @@ class Go2Node(UnitreeRos2Real):
         self.depth_encoder_model = depth_encoder_model
         self.depth_actor_model = depth_actor_model
         
-        self.use_stand_policy = True # Start with standing model
+        self.use_stand_policy = False # Start with standing model
+        self.use_sport_mode = True
 
     def start_main_loop_timer(self, duration):
         self.main_loop_timer = self.create_timer(
@@ -61,17 +62,59 @@ class Go2Node(UnitreeRos2Real):
         )
         
     def main_loop(self):
-        # obs = self.read_observation()
-        obs = self._get_dof_pos_obs() # do not multiply by obs_scales["dof_pos"]
-        print("obs: ", obs)
-        action = self.stand_model(obs)
-        print("action: ", action)
-        if (action == 0).all():
-            self.get_logger().info("All actions are zero, it's time to switch to the policy", throttle_duration_sec= 1)
-            # else:
-                # print("maximum dof error: {:.3f}".format(action.abs().max().item(), end= "\r"))
-        self.send_action(action / self.action_scale)
-        # self.send_action(action)
+        if self.use_sport_mode:
+            if (self.joy_stick_buffer.keys & self.WirelessButtons.L1):
+                self.get_logger().info("L1 pressed, Robot stand up")
+                self._sport_mode_change(ROBOT_SPORT_API_ID_STANDUP)
+            if (self.joy_stick_buffer.keys & self.WirelessButtons.X):
+                self.get_logger().info("X pressed, Robot balance stand")
+                self._sport_mode_change(ROBOT_SPORT_API_ID_BALANCESTAND)
+            if (self.joy_stick_buffer.keys & self.WirelessButtons.L2):
+                self.get_logger().info("L2 pressed, Robot sit down")
+                self._sport_mode_change(ROBOT_SPORT_API_ID_STANDDOWN)
+            if (self.joy_stick_buffer.keys & self.WirelessButtons.R1):
+                self.use_sport_mode = False
+                self._sport_state_change(0)
+                self.use_stand_policy = True
+
+        if self.use_stand_policy:
+            obs = self._get_dof_pos_obs() # do not multiply by obs_scales["dof_pos"]
+            action = self.stand_model(obs)
+            if (action == 0).all():
+                self.get_logger().info("All actions are zero, it's time to switch to the policy", throttle_duration_sec= 1)
+                # else:
+                    # print("maximum dof error: {:.3f}".format(action.abs().max().item(), end= "\r"))
+            self.send_action(action / self.action_scale)
+
+            if (self.joy_stick_buffer.keys & self.WirelessButtons.R2):
+                self.get_logger().info("R2 pressed, stop using stand policy, switch to sport mode")
+                self.use_stand_policy = False
+                self.use_sport_mode = True
+                self._sport_state_change(1)
+                self._sport_mode_change(ROBOT_SPORT_API_ID_BALANCESTAND)
+
+        # if (self.joy_stick_buffer.keys & self.WirelessButtons.R1) and self.use_stand_policy:
+        #     obs = self._get_dof_pos_obs() # do not multiply by obs_scales["dof_pos"]
+        #     action = self.stand_model(obs)
+        #     if (action == 0).all():
+        #         self.get_logger().info("All actions are zero, it's time to switch to the policy", throttle_duration_sec= 1)
+        #         # else:
+        #             # print("maximum dof error: {:.3f}".format(action.abs().max().item(), end= "\r"))
+        #     self.send_action(action / self.action_scale)
+        #     self._sport_state_change(0)
+
+        # if (self.joy_stick_buffer.keys & self.WirelessButtons.L1) and self.use_stand_policy:
+        #     self.get_logger().info("L1 pressed")
+        #     self.use_stand_policy = False
+        #     # self._sport_state_change(1)
+        #     self._sport_mode_change(1005)
+
+        # if (self.joy_stick_buffer.keys & self.WirelessButtons.L2) and self.use_stand_policy==False:
+        #     self.get_logger().info("L2 pressed")
+        #     self.use_stand_policy = True
+        #     # self._sport_state_change(0)
+        #     self._sport_mode_change(1004)
+            
 
 
         # if (self.joy_stick_buffer.keys & self.WirelessButtons.L1) and self.use_stand_policy:

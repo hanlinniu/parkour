@@ -11,6 +11,8 @@ from unitree_go.msg import (
     LowCmd,
     # MotorCmd,
 )
+from unitree_api.msg import Request, RequestHeader
+
 from std_msgs.msg import Float32MultiArray
 from sensor_msgs.msg import Image, CameraInfo
 
@@ -168,6 +170,7 @@ class UnitreeRos2Real(Node):
         self.dof_names = getattr(RobotCfgs, self.robot_class_name).dof_names
         self.dof_signs = getattr(RobotCfgs, self.robot_class_name).dof_signs
         self.turn_on_motor_mode = getattr(RobotCfgs, self.robot_class_name).turn_on_motor_mode
+        self.latest_sportmodestate_msg = None
 
         self.clip_obs = 100.0
         self.step_count = 0
@@ -241,6 +244,18 @@ class UnitreeRos2Real(Node):
             1
         )
 
+        self.sport_state_pub = self.create_publisher(
+            Request,
+            '/api/robot_state/request',
+            1,
+        )
+
+        self.sport_mode_pub = self.create_publisher(
+            Request,
+            '/api/sport/request',
+            1,
+        )
+
         self.joy_stick_sub = self.create_subscription(
             WirelessController,
             self.joy_stick_topic,
@@ -301,7 +316,49 @@ class UnitreeRos2Real(Node):
             
     def _sport_mode_state_callback(self, msg):
         """ store and handle proprioception data """
-        self.sport_mode_state_buffer = msg # keep the latest low state
+        self.sport_mode_state_buffer = msg # keep the latest sport mode state
+
+    def _sport_state_change(self, mode):
+        msg = Request()
+
+        # Fill the header
+        msg.header.identity.id = 0
+        msg.header.identity.api_id = 1001
+        msg.header.lease.id = 0
+        msg.header.policy.priority = 0
+        msg.header.policy.noreply = False
+
+        # Fill the parameter
+        if mode==0:
+            msg.parameter = '{"name":"sport_mode","switch":0}'
+        elif mode==1:
+            msg.parameter = '{"name":"sport_mode","switch":1}'
+
+        # Binary data (optional, leave empty if not needed)
+        msg.binary = []
+
+        # Publish the request
+        self.sport_state_pub.publish(msg)
+        # self.get_logger().info(f"Request sent: {msg}")
+
+
+    def _sport_mode_change(self, mode):
+        msg = Request()
+
+        # Fill the request header for damp mode
+        msg.header.identity.id = 0  # Replace with appropriate ID if required
+        msg.header.identity.api_id = mode  # ID for damp mode
+        msg.header.lease.id = 0  # Lease ID
+        msg.header.policy.priority = 0  # Priority level
+        msg.header.policy.noreply = False  # Expect a response
+
+        # Parameter and binary data can remain empty for this mode
+        msg.parameter = ''
+        msg.binary = []
+
+        # Publish the request
+        self.sport_mode_pub.publish(msg)
+        # self.get_logger().info(f"Request sent: {msg}")
 
     def _joy_stick_callback(self, msg):
         self.joy_stick_buffer = msg
@@ -342,10 +399,10 @@ class UnitreeRos2Real(Node):
         # 00000000 00000001 means pressing the 0-th button (R1)
         # 00000000 00000010 means pressing the 1-th button (L1)
         # 10000000 00000000 means pressing the 15-th button (left)
-        if (msg.keys & self.WirelessButtons.R2) or (msg.keys & self.WirelessButtons.L2): # R2 or L2 is pressed
-            self.get_logger().warn("R2 or L2 is pressed, the motors and this process shuts down.")
-            self._turn_off_motors()
-            raise SystemExit()
+        # if (msg.keys & self.WirelessButtons.R2) or (msg.keys & self.WirelessButtons.L2): # R2 or L2 is pressed
+        #     self.get_logger().warn("R2 or L2 is pressed, the motors and this process shuts down.")
+        #     self._turn_off_motors()
+        #     raise SystemExit()
 
         # roll-pitch target
         if hasattr(self, "roll_pitch_yaw_cmd"):
