@@ -299,9 +299,11 @@ class UnitreeRos2Real(Node):
         for sim_idx in range(self.NUM_DOF):
             real_idx = self.dof_map[sim_idx]
             self.dof_pos_[0, sim_idx] = self.low_state_buffer.motor_state[real_idx].q * self.dof_signs[sim_idx]
+
         for sim_idx in range(self.NUM_DOF):
             real_idx = self.dof_map[sim_idx]
             self.dof_vel_[0, sim_idx] = self.low_state_buffer.motor_state[real_idx].dq * self.dof_signs[sim_idx]
+
         # automatic safety check
         for sim_idx in range(self.NUM_DOF):
             real_idx = self.dof_map[sim_idx]
@@ -573,8 +575,11 @@ class UnitreeRos2Real(Node):
                 self.actions = actions
 
         actions = self.clip_action_before_scale(actions)
-        clipped_scaled_action = self.clip_by_torque_limit(actions * self.action_scale)
-        robot_coordinates_action = clipped_scaled_action + self.default_dof_pos.unsqueeze(0)
+        # clipped_scaled_action = self.clip_by_torque_limit(actions * self.action_scale)
+
+        clipped_scaled_action = actions * self.action_scale
+        robot_coordinates_action = clipped_scaled_action + self.reindex(self.default_dof_pos.unsqueeze(0))
+
         self._publish_legs_cmd(robot_coordinates_action[0])
 
     def clip_action_before_scale(self, actions):

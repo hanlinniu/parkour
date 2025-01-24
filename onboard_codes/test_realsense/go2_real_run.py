@@ -86,7 +86,7 @@ class Go2Node(UnitreeRos2Real):
         if self.use_stand_policy:
             obs = self._get_dof_pos_obs() # do not multiply by obs_scales["dof_pos"]
 
-            obs_parkour = self.read_observation()   # torch.Size([1, 753])
+            # obs_parkour = self.read_observation()   # torch.Size([1, 753])
             
             action = self.stand_model(obs)
             if (action == 0).all():
