@@ -491,7 +491,7 @@ class UnitreeRos2Real(Node):
         placeholder_delta_yaw = torch.tensor([0], device=self.model_device, dtype=torch.float32)   # will be predicted by depth_encoder
         placeholder_delta_next_yaw = torch.tensor([0], device=self.model_device, dtype=torch.float32)  # will be predicted by depth_encoder
         placeholder_0_commands = torch.tensor([0, 0], device=self.model_device, dtype=torch.float32)  
-        placeholder_commands = torch.tensor([0.5], device=self.model_device, dtype=torch.float32)  # self.commands[:, 0]. it is a random velocity command for x direction, range [0.3, 0.8]
+        placeholder_commands = torch.tensor([0.5403], device=self.model_device, dtype=torch.float32)  # self.commands[:, 0]. it is a random velocity command for x direction, range [0.3, 0.8]
         placeholder_env_class_not_17 = torch.tensor([1], device=self.model_device, dtype=torch.float32)
         placeholder_env_class_17 = torch.tensor([0], device=self.model_device, dtype=torch.float32)
 
