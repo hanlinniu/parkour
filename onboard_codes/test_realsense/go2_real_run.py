@@ -199,38 +199,43 @@ def main(args):
     rclpy.init()
 
     save_folder = os.path.expanduser("~/parkour/onboard_codes/test_realsense/saved_models")
+    save_data_folder = os.path.expanduser("~/parkour/onboard_codes/test_realsense/saved_data")
+
     estimator = load_model(folder_path=save_folder, filename="estimator.pth")
     depth_encoder = load_model(folder_path=save_folder, filename="depth_encoder.pth")
     depth_actor = load_model(folder_path=save_folder, filename="depth_actor.pth")
+
+    flat_depth = load_model(folder_path=save_folder, filename="step_215_depth_data.pth")
 
     # Print loaded models
     print("Loaded estimator is:", estimator)
     print("Loaded depth_encoder is:", depth_encoder)
     print("Loaded depth_actor is:", depth_actor)
+    print("Loaded flat_depth is:", flat_depth)
 
-    duration = 0.02  # for control frequency
-    device = torch.device('cuda:0')
-    print("Models are loaded")
-    env_node = Go2Node(
-        "Go2",
-        model_device= device,
-        dryrun= not args.nodryrun,
-    )
-    print("Models are registered")
+    # duration = 0.02  # for control frequency
+    # device = torch.device('cuda:0')
+    # print("Models are loaded")
+    # env_node = Go2Node(
+    #     "Go2",
+    #     model_device= device,
+    #     dryrun= not args.nodryrun,
+    # )
+    # print("Models are registered")
 
-    zero_act_model = ZeroActModel()
-    zero_act_model = torch.jit.script(zero_act_model)
+    # zero_act_model = ZeroActModel()
+    # zero_act_model = torch.jit.script(zero_act_model)
 
-    env_node.register_models(
-        zero_act_model, 
-        estimator, 
-        depth_encoder, 
-        depth_actor
-    )
+    # env_node.register_models(
+    #     zero_act_model, 
+    #     estimator, 
+    #     depth_encoder, 
+    #     depth_actor
+    # )
     
-    env_node.start_main_loop_timer(duration=0.02)
-    rclpy.spin(env_node)
-    rclpy.shuntdown()
+    # env_node.start_main_loop_timer(duration=0.02)
+    # rclpy.spin(env_node)
+    # rclpy.shuntdown()
 
 if __name__ == "__main__":
     import argparse
