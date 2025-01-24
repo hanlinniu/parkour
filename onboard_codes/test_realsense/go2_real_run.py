@@ -18,7 +18,7 @@ from sport_api_constants import *
 
 def load_model(folder_path, filename):
     model_path = os.path.join(folder_path, filename)
-    model = torch.load(model_path, map_location=torch.device('cuda:0'))  # Load the saved model
+    model = torch.load(model_path, map_location=torch.device('cpu'))  # Load the saved model
     return model
 
 
@@ -42,7 +42,10 @@ class Go2Node(UnitreeRos2Real):
         self.loop_counter = 0
         self.infos = {}
         self.infos["depth"] = None
-        self.device = torch.device('cuda:0')
+        self.device = torch.device('cpu')
+
+        save_data_folder = os.path.expanduser("~/parkour/onboard_codes/test_realsense/saved_data")
+        self.flat_depth_data = load_model(folder_path=save_data_folder, filename="step_215_depth_data.pth")
 
 
     def register_models(self, stand_model, estimator_model, depth_encoder_model, depth_actor_model):
@@ -62,6 +65,8 @@ class Go2Node(UnitreeRos2Real):
         )
         
     def main_loop(self):
+        
+
         if self.use_sport_mode:
             if (self.joy_stick_buffer.keys & self.WirelessButtons.L1):
                 self.get_logger().info("L1 pressed, Robot stand up")
@@ -80,6 +85,9 @@ class Go2Node(UnitreeRos2Real):
 
         if self.use_stand_policy:
             obs = self._get_dof_pos_obs() # do not multiply by obs_scales["dof_pos"]
+
+            obs_parkour = self.read_observation()   # torch.Size([1, 753])
+            
             action = self.stand_model(obs)
             if (action == 0).all():
                 self.get_logger().info("All actions are zero, it's time to switch to the policy", throttle_duration_sec= 1)
@@ -98,10 +106,14 @@ class Go2Node(UnitreeRos2Real):
             if (self.joy_stick_buffer.keys & self.WirelessButtons.Y):
                 self.get_logger().info("Y pressed, use the parkour policy")
                 self.use_stand_policy = True
+                yaw = torch.zeros(1, 2, device=self.device)  # Initialize yaw to zeros
+                depth_latent = torch.zeros(1, 32, device=self.device)  # Initialize depth_latent to zeros
+                self.loop_counter = 0
 
                 while self.use_stand_policy:
                     self.loop_counter += 1
-                    vision_obs = self._get_depth_obs()  # torch.Size([1, 58, 87])
+                    # vision_obs = self._get_depth_obs()  # torch.Size([1, 58, 87])
+                    vision_obs = self.flat_depth_data
                     obs = self.read_observation()   # torch.Size([1, 753])
 
                     if (self.loop_counter % 5 == 0) & (vision_obs is not None):
@@ -114,6 +126,7 @@ class Go2Node(UnitreeRos2Real):
                         depth_latent_and_yaw = self.depth_encoder_model(self.infos["depth"], obs_student)  #  output torch.Size([1, 34])
                         depth_latent = depth_latent_and_yaw[:, :-2]  # torch.Size([1, 34])
                         yaw = depth_latent_and_yaw[:, -2:]  # torch.Size([1, 2])
+                        print("it is using depth camera, infos has depth info")
                     else:
                         print("it is using depth camera, infos has no depth info")
 
@@ -124,7 +137,7 @@ class Go2Node(UnitreeRos2Real):
 
                     actions = self.depth_actor_model(obs_est.detach(), hist_encoding=True, scandots_latent=depth_latent)
                     print("actions: ", actions)
-                    # self.send_action(actions)
+                    self.send_action(actions)
 
                     if (self.joy_stick_buffer.keys & self.WirelessButtons.R2):
                         self.get_logger().info("R2 pressed, stop using parkour policy, switch to sport mode")
@@ -198,17 +211,22 @@ def main(args):
     rclpy.init()
 
     save_folder = os.path.expanduser("~/parkour/onboard_codes/test_realsense/saved_models")
+    save_data_folder = os.path.expanduser("~/parkour/onboard_codes/test_realsense/saved_data")
+
     estimator = load_model(folder_path=save_folder, filename="estimator.pth")
     depth_encoder = load_model(folder_path=save_folder, filename="depth_encoder.pth")
     depth_actor = load_model(folder_path=save_folder, filename="depth_actor.pth")
+
+    flat_depth_data = load_model(folder_path=save_data_folder, filename="step_215_depth_data.pth")
 
     # Print loaded models
     print("Loaded estimator is:", estimator)
     print("Loaded depth_encoder is:", depth_encoder)
     print("Loaded depth_actor is:", depth_actor)
+    print("flat_depth_data is:", flat_depth_data)
 
     duration = 0.02  # for control frequency
-    device = torch.device('cuda:0')
+    device = torch.device('cpu')
     print("Models are loaded")
     env_node = Go2Node(
         "Go2",

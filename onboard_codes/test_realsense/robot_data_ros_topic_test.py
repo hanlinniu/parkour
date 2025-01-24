@@ -483,10 +483,14 @@ class UnitreeRos2Real(Node):
             [x * 0.25 for x in self.low_state_buffer.imu_state.gyroscope],
             device=self.model_device, dtype=torch.float32
         )   # [1,3]
+        # print("self.low_state_buffer.imu_state.gyroscope: ", self.low_state_buffer.imu_state.gyroscope)
+
         placeholder_imu_obs = torch.tensor(
-            [self.low_state_buffer.imu_state.rpy[0], self.low_state_buffer.imu_state.rpy[1]],
+            [self.low_state_buffer.imu_state.rpy[1], self.low_state_buffer.imu_state.rpy[0]],
             device=self.model_device, dtype=torch.float32
-        )   # [1,2] 
+        )   # [1,2]
+        # print("self.low_state_buffer.imu_state.rpy: ", self.low_state_buffer.imu_state.rpy)
+
         placeholder_0_delta_yaw = torch.tensor([0], device=self.model_device, dtype=torch.float32)   # [1,1]
         placeholder_delta_yaw = torch.tensor([0], device=self.model_device, dtype=torch.float32)   # will be predicted by depth_encoder
         placeholder_delta_next_yaw = torch.tensor([0], device=self.model_device, dtype=torch.float32)  # will be predicted by depth_encoder
