@@ -602,8 +602,18 @@ class UnitreeRos2Real(Node):
         """ Publish the joint commands to the robot legs in robot coordinates system.
         robot_coordinates_action: shape (NUM_DOF,), in simulation order.
         """
+        # for sim_idx in range(self.NUM_DOF):
+        #     real_idx = self.dof_map[sim_idx]
+        #     if not self.dryrun:
+        #         self.low_cmd_buffer.motor_cmd[real_idx].mode = self.turn_on_motor_mode[sim_idx]
+        #     self.low_cmd_buffer.motor_cmd[real_idx].q = robot_coordinates_action[sim_idx].item() * self.dof_signs[sim_idx]
+        #     self.low_cmd_buffer.motor_cmd[real_idx].dq = 0.
+        #     self.low_cmd_buffer.motor_cmd[real_idx].tau = 0.
+        #     self.low_cmd_buffer.motor_cmd[real_idx].kp = self.p_gains
+        #     self.low_cmd_buffer.motor_cmd[real_idx].kd = self.d_gains
+
         for sim_idx in range(self.NUM_DOF):
-            real_idx = self.dof_map[sim_idx]
+            real_idx = sim_idx
             if not self.dryrun:
                 self.low_cmd_buffer.motor_cmd[real_idx].mode = self.turn_on_motor_mode[sim_idx]
             self.low_cmd_buffer.motor_cmd[real_idx].q = robot_coordinates_action[sim_idx].item() * self.dof_signs[sim_idx]
@@ -611,7 +621,7 @@ class UnitreeRos2Real(Node):
             self.low_cmd_buffer.motor_cmd[real_idx].tau = 0.
             self.low_cmd_buffer.motor_cmd[real_idx].kp = self.p_gains
             self.low_cmd_buffer.motor_cmd[real_idx].kd = self.d_gains
-        
+
         self.low_cmd_buffer.crc = get_crc(self.low_cmd_buffer)
         self.low_cmd_pub.publish(self.low_cmd_buffer)
 
