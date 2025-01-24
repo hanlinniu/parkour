@@ -294,6 +294,7 @@ class UnitreeRos2Real(Node):
     def _low_state_callback(self, msg):
         """ store and handle proprioception data """
         self.low_state_buffer = msg # keep the latest low state
+        print("self.low_state_buffer motor state: ", self.low_state_buffer.motor_state)
 
         # refresh dof_pos and dof_vel
         for sim_idx in range(self.NUM_DOF):
@@ -305,16 +306,16 @@ class UnitreeRos2Real(Node):
             self.dof_vel_[0, sim_idx] = self.low_state_buffer.motor_state[real_idx].dq * self.dof_signs[sim_idx]
 
         # automatic safety check
-        for sim_idx in range(self.NUM_DOF):
-            real_idx = self.dof_map[sim_idx]
-            if self.dof_pos_[0, sim_idx] > self.joint_pos_protect_high[sim_idx] or \
-                self.dof_pos_[0, sim_idx] < self.joint_pos_protect_low[sim_idx]:
-                self.get_logger().error(f"Joint {sim_idx}(sim), {real_idx}(real) position out of range at {self.low_state_buffer.motor_state[real_idx].q}")
-                self.get_logger().error(f"self.joint_pos_protect_low[sim_idx] is {self.joint_pos_protect_low[sim_idx]}")
-                self.get_logger().error(f"self.joint_pos_protect_high[sim_idx] is {self.joint_pos_protect_high[sim_idx]}")
-                self.get_logger().error("The motors and this process shuts down.")
-                self._turn_off_motors()
-                raise SystemExit()
+        # for sim_idx in range(self.NUM_DOF):
+        #     real_idx = self.dof_map[sim_idx]
+        #     if self.dof_pos_[0, sim_idx] > self.joint_pos_protect_high[sim_idx] or \
+        #         self.dof_pos_[0, sim_idx] < self.joint_pos_protect_low[sim_idx]:
+        #         self.get_logger().error(f"Joint {sim_idx}(sim), {real_idx}(real) position out of range at {self.low_state_buffer.motor_state[real_idx].q}")
+        #         self.get_logger().error(f"self.joint_pos_protect_low[sim_idx] is {self.joint_pos_protect_low[sim_idx]}")
+        #         self.get_logger().error(f"self.joint_pos_protect_high[sim_idx] is {self.joint_pos_protect_high[sim_idx]}")
+        #         self.get_logger().error("The motors and this process shuts down.")
+        #         self._turn_off_motors()
+        #         raise SystemExit()
             
     def _sport_mode_state_callback(self, msg):
         """ store and handle proprioception data """
@@ -612,11 +613,10 @@ class UnitreeRos2Real(Node):
         #     self.low_cmd_buffer.motor_cmd[real_idx].kp = self.p_gains
         #     self.low_cmd_buffer.motor_cmd[real_idx].kd = self.d_gains
 
-        for sim_idx in range(self.NUM_DOF):
-            real_idx = sim_idx
+        for real_idx in range(self.NUM_DOF):
             if not self.dryrun:
-                self.low_cmd_buffer.motor_cmd[real_idx].mode = self.turn_on_motor_mode[sim_idx]
-            self.low_cmd_buffer.motor_cmd[real_idx].q = robot_coordinates_action[sim_idx].item() * self.dof_signs[sim_idx]
+                self.low_cmd_buffer.motor_cmd[real_idx].mode = self.turn_on_motor_mode[real_idx]
+            self.low_cmd_buffer.motor_cmd[real_idx].q = robot_coordinates_action[real_idx].item() * self.dof_signs[real_idx]
             self.low_cmd_buffer.motor_cmd[real_idx].dq = 0.
             self.low_cmd_buffer.motor_cmd[real_idx].tau = 0.
             self.low_cmd_buffer.motor_cmd[real_idx].kp = self.p_gains
