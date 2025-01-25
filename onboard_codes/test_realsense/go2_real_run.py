@@ -131,6 +131,7 @@ class Go2Node(UnitreeRos2Real):
                         print("it is using depth camera, infos has no depth info")
 
                     obs[:, 6:8] = 1.5*yaw
+                    
                     obs_est = obs.clone()
                     priv_states_estimated = self.estimator_model(obs_est[:, :53])         # output is 9, estimate velocity stuff
                     obs_est[:, 53+132:53+132+9] = priv_states_estimated

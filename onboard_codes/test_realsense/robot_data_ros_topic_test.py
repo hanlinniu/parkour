@@ -45,12 +45,15 @@ class RobotCfgs:
             "FL_hip_joint",
             "FL_thigh_joint",
             "FL_calf_joint",
+
             "FR_hip_joint",
             "FR_thigh_joint",
             "FR_calf_joint",
+
             "RL_hip_joint",
             "RL_thigh_joint",
             "RL_calf_joint",
+
             "RR_hip_joint",
             "RR_thigh_joint",
             "RR_calf_joint",
@@ -80,12 +83,15 @@ class RobotCfgs:
                     "FL_hip_joint": 0.1,
                     "FL_thigh_joint": 0.7,
                     "FL_calf_joint": -1.5,
+
                     "FR_hip_joint": -0.1,
                     "FR_thigh_joint": 0.7,
                     "FR_calf_joint": -1.5,
+
                     "RL_hip_joint": 0.1,
                     "RL_thigh_joint": 1.0,
                     "RL_calf_joint": -1.5,
+
                     "RR_hip_joint": -0.1,
                     "RR_thigh_joint": 1.0,
                     "RR_calf_joint": -1.5
@@ -453,7 +459,7 @@ class UnitreeRos2Real(Node):
         return self.forward_depth_buffer
     
     def _get_dof_pos_obs(self):
-        return self.dof_pos_ - self.default_dof_pos.unsqueeze(0)
+        return self.reindex(self.dof_pos_ - self.default_dof_pos.unsqueeze(0))
     
     def _get_contact_filt_obs(self):
         contact = [force > 20 for force in self.low_state_buffer.foot_force]
@@ -507,6 +513,7 @@ class UnitreeRos2Real(Node):
             device=self.model_device, dtype=torch.float32
         )
         # print("placeholder_dof_pos: ", placeholder_dof_pos)
+        
         placeholder_dof_vel = torch.tensor(
             self.reindex(self.dof_vel_ * 0.05),
             device=self.model_device, dtype=torch.float32
@@ -558,11 +565,10 @@ class UnitreeRos2Real(Node):
         # Handle history buffer
         if self.step_count <= 1:
             self.obs_history_buf = torch.cat([obs_buf] * 10)
+        else:
+            self.obs_history_buf = torch.cat((self.obs_history_buf[53:], obs_buf))
 
         self.total_obs_buf = torch.cat([obs_buf, heights, priv_explicit, priv_latent, self.obs_history_buf])
-
-        if self.step_count > 1:
-            self.obs_history_buf = torch.cat((self.obs_history_buf[53:], obs_buf))
 
         # Clip the observations
         self.obs_buffer = (torch.clamp(self.total_obs_buf, -self.clip_obs, self.clip_obs)).unsqueeze(0)
@@ -578,8 +584,7 @@ class UnitreeRos2Real(Node):
         actions = self.clip_action_before_scale(actions)
         # clipped_scaled_action = self.clip_by_torque_limit(actions * self.action_scale)
 
-        clipped_scaled_action = actions * self.action_scale
-        robot_coordinates_action = clipped_scaled_action + self.reindex(self.default_dof_pos.unsqueeze(0))
+        robot_coordinates_action = actions * self.action_scale + self.reindex(self.default_dof_pos.unsqueeze(0))
 
         self._publish_legs_cmd(robot_coordinates_action[0])
 
