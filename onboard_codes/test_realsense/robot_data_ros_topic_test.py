@@ -300,7 +300,16 @@ class UnitreeRos2Real(Node):
     def _low_state_callback(self, msg):
         """ store and handle proprioception data """
         self.low_state_buffer = msg # keep the latest low state
-        print("self.low_state_buffer motor state: ", self.low_state_buffer.motor_state)
+        # print("self.low_state_buffer motor state[0]: ", self.low_state_buffer.motor_state[0].q)
+        # print("self.low_state_buffer motor state[3]: ", self.low_state_buffer.motor_state[3].q)
+        # print("self.low_state_buffer motor state[6]: ", self.low_state_buffer.motor_state[6].q)
+        # print("self.low_state_buffer motor state[9]: ", self.low_state_buffer.motor_state[9].q)
+        # print("*"*50)
+            
+        # self.low_state_buffer motor state[0]:  -0.049813926219940186
+        # self.low_state_buffer motor state[3]:  0.05414363741874695
+        # self.low_state_buffer motor state[6]:  -0.09193509817123413
+        # self.low_state_buffer motor state[9]:  0.08324539661407471
 
         # refresh dof_pos and dof_vel
         for sim_idx in range(self.NUM_DOF):
@@ -310,6 +319,8 @@ class UnitreeRos2Real(Node):
         for sim_idx in range(self.NUM_DOF):
             real_idx = self.dof_map[sim_idx]
             self.dof_vel_[0, sim_idx] = self.low_state_buffer.motor_state[real_idx].dq * self.dof_signs[sim_idx]
+
+        
 
         # automatic safety check
         # for sim_idx in range(self.NUM_DOF):
@@ -585,6 +596,7 @@ class UnitreeRos2Real(Node):
         # clipped_scaled_action = self.clip_by_torque_limit(actions * self.action_scale)
 
         robot_coordinates_action = actions * self.action_scale + self.reindex(self.default_dof_pos.unsqueeze(0))
+        # print("self.reindex(self.default_dof_pos.unsqueeze(0)) is ", self.reindex(self.default_dof_pos.unsqueeze(0)))
 
         self._publish_legs_cmd(robot_coordinates_action[0])
 
