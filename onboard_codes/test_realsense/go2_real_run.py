@@ -93,7 +93,9 @@ class Go2Node(UnitreeRos2Real):
                 self.get_logger().info("All actions are zero, it's time to switch to the policy", throttle_duration_sec= 1)
                 # else:
                     # print("maximum dof error: {:.3f}".format(action.abs().max().item(), end= "\r"))
-            self.send_action(action / self.action_scale)
+            # self.send_action(action / self.action_scale)
+            self.send_action(action)
+
 
             if (self.joy_stick_buffer.keys & self.WirelessButtons.R2):
                 self.get_logger().info("R2 pressed, stop using stand policy, switch to sport mode")
