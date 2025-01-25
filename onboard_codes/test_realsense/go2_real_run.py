@@ -131,7 +131,7 @@ class Go2Node(UnitreeRos2Real):
             
             self.obs_est = self.obs.clone()
             self.priv_states_estimated = self.estimator_model(self.obs_est[:, :53])         # output is 9, estimate velocity stuff
-            self.obs_est[:, 53+132:53+132+9] = self.priv_states_estimated
+            self.obs_est[:, 53+132:53+132+9] = self.priv_states_estimated.clone()
 
             self.actions = self.depth_actor_model(self.obs_est.detach(), hist_encoding=True, scandots_latent=self.depth_latent)
             # print("actions: ", actions)
