@@ -164,6 +164,7 @@ class VisualHandlerNode(Node):
 
         # Step 6: Normize the depth image
         normized_depth_image = (resized_depth_image_np_clipped - self.near_clip) / (self.far_clip - self.near_clip) - 0.5
+        # normized_depth_image = resized_depth_image_np_clipped
 
         # print("normized_depth_image shape is ", normized_depth_image.shape)
         # print("normized_depth_image is ", normized_depth_image)

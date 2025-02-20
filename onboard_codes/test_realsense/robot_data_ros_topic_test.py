@@ -127,7 +127,7 @@ class UnitreeRos2Real(Node):
             sport_mode_state_topic = "/sportmodestate",
             low_cmd_topic= "/lowcmd",
             joy_stick_topic= "/wirelesscontroller",
-            forward_depth_topic= None, # "/camera/forward_depth", # if None and still need access, set to str "pyrealsense"
+            forward_depth_topic= "/camera/forward_depth", # if None and still need access, set to str "pyrealsense"
             forward_depth_embedding_topic= None,  # "/forward_depth_embedding",
             cfg= dict(),
             lin_vel_deadband= 0.1,
@@ -323,16 +323,16 @@ class UnitreeRos2Real(Node):
         
 
         # automatic safety check
-        # for sim_idx in range(self.NUM_DOF):
-        #     real_idx = self.dof_map[sim_idx]
-        #     if self.dof_pos_[0, sim_idx] > self.joint_pos_protect_high[sim_idx] or \
-        #         self.dof_pos_[0, sim_idx] < self.joint_pos_protect_low[sim_idx]:
-        #         self.get_logger().error(f"Joint {sim_idx}(sim), {real_idx}(real) position out of range at {self.low_state_buffer.motor_state[real_idx].q}")
-        #         self.get_logger().error(f"self.joint_pos_protect_low[sim_idx] is {self.joint_pos_protect_low[sim_idx]}")
-        #         self.get_logger().error(f"self.joint_pos_protect_high[sim_idx] is {self.joint_pos_protect_high[sim_idx]}")
-        #         self.get_logger().error("The motors and this process shuts down.")
-        #         self._turn_off_motors()
-        #         raise SystemExit()
+        for sim_idx in range(self.NUM_DOF):
+            real_idx = self.dof_map[sim_idx]
+            if self.dof_pos_[0, sim_idx] > self.joint_pos_protect_high[sim_idx] or \
+                self.dof_pos_[0, sim_idx] < self.joint_pos_protect_low[sim_idx]:
+                self.get_logger().error(f"Joint {sim_idx}(sim), {real_idx}(real) position out of range at {self.low_state_buffer.motor_state[real_idx].q}")
+                self.get_logger().error(f"self.joint_pos_protect_low[sim_idx] is {self.joint_pos_protect_low[sim_idx]}")
+                self.get_logger().error(f"self.joint_pos_protect_high[sim_idx] is {self.joint_pos_protect_high[sim_idx]}")
+                self.get_logger().error("The motors and this process shuts down.")
+                self._turn_off_motors()
+                raise SystemExit()
             
     def _sport_mode_state_callback(self, msg):
         """ store and handle proprioception data """
@@ -576,10 +576,11 @@ class UnitreeRos2Real(Node):
         # Handle history buffer
         if self.step_count <= 1:
             self.obs_history_buf = torch.cat([obs_buf] * 10)
-        else:
-            self.obs_history_buf = torch.cat((self.obs_history_buf[53:], obs_buf))
 
         self.total_obs_buf = torch.cat([obs_buf, heights, priv_explicit, priv_latent, self.obs_history_buf])
+
+        if self.step_count > 1:
+            self.obs_history_buf = torch.cat((self.obs_history_buf[53:], obs_buf))
 
         # Clip the observations
         self.obs_buffer = (torch.clamp(self.total_obs_buf, -self.clip_obs, self.clip_obs)).unsqueeze(0)
