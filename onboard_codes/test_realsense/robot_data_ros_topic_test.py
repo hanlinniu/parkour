@@ -503,6 +503,10 @@ class UnitreeRos2Real(Node):
             [x * 0.25 for x in self.low_state_buffer.imu_state.gyroscope],
             device=self.model_device, dtype=torch.float32
         )   # [1,3]
+
+        
+        placeholder_base_ang_vel[2] = placeholder_base_ang_vel[2] + (self.low_state_buffer.imu_state.rpy[2]) * 0.3
+        
         # print("self.low_state_buffer.imu_state.gyroscope: ", self.low_state_buffer.imu_state.gyroscope)
 
         placeholder_imu_obs = torch.tensor(
