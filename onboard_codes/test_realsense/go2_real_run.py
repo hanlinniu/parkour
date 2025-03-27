@@ -139,6 +139,7 @@ class Go2Node(UnitreeRos2Real):
 
 
             ####################################################################
+            ##########################log yaw data##############################
             self.log_entry = [self.step_count,
                          self.obs[:, 6],
                          self.obs[:, 7]]
