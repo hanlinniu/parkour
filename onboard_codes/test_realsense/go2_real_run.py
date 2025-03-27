@@ -17,6 +17,8 @@ from rsl_rl import modules
 from sport_api_constants import *
 import time
 
+
+
 def load_model(folder_path, filename):
     model_path = os.path.join(folder_path, filename)
     model = torch.load(model_path, map_location=torch.device('cpu'))  # Load the saved model
@@ -50,6 +52,8 @@ class Go2Node(UnitreeRos2Real):
 
         self.yaw = torch.zeros(1, 2, device=self.device)  # Initialize yaw to zeros
         self.depth_latent = torch.zeros(1, 32, device=self.device)  # Initialize depth_latent to zeros
+
+        self.yaw_log = []
         
     def register_models(self, stand_model, estimator_model, depth_encoder_model, depth_actor_model):
         self.stand_model = stand_model
@@ -132,18 +136,29 @@ class Go2Node(UnitreeRos2Real):
                 print("it is using depth camera, infos has no depth info")
 
             self.obs[:, 6:8] = 1.5*self.yaw
+
+
+            ####################################################################
+            self.log_entry = [self.step_count,
+                         self.obs[:, 6],
+                         self.obs[:, 7]]
+            self.yaw_log.append(self.log_entry)
+            ####################################################################
+            
             
             self.obs_est = self.obs.clone()
             self.priv_states_estimated = self.estimator_model(self.obs_est[:, :53])         # output is 9, estimate velocity stuff
             self.obs_est[:, 53+132:53+132+9] = self.priv_states_estimated.clone()
 
             self.actions = self.depth_actor_model(self.obs_est.detach(), hist_encoding=True, scandots_latent=self.depth_latent)
-            # print("actions: ", actions)
             self.send_action(self.actions)
 
         if (self.joy_stick_buffer.keys & self.WirelessButtons.R2):
             if self.use_parkour_policy:
                 self.get_logger().info("R2 pressed, stop using parkour policy, switch to sport mode")
+                np.save("full_sensor_log.npy", np.array(self.data_log))
+                np.save("yaw_log.npy", np.array(self.yaw_log))
+
             if self.use_stand_policy:
                 self.get_logger().info("R2 pressed, stop using stand policy, switch to sport mode")
             self.use_stand_policy = False

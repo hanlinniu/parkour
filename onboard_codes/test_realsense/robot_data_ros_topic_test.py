@@ -195,6 +195,8 @@ class UnitreeRos2Real(Node):
         self.parse_config()
         self.start_ros_handlers()
 
+        self.data_log = []
+
     def parse_config(self):
 
         self.p_gains = getattr(RobotCfgs, self.robot_class_name).stiffness
@@ -498,6 +500,29 @@ class UnitreeRos2Real(Node):
     def read_observation(self):
         self.step_count += 1
 
+        ######################################################################################
+        ############################## Record sensor data ####################################
+        ######################################################################################
+        imu = self.low_state_buffer.imu_state
+
+        # Get contact data and reindex it
+        contact = self.reindex_feet(self._get_contact_filt_obs() - 0.5)
+
+        # Record data: step_count, 3 gyro, 3 rpy, 4 contacts
+        log_entry = [
+            self.step_count,
+            imu.gyroscope[0],
+            imu.gyroscope[1],
+            imu.gyroscope[2],
+            imu.rpy[0],
+            imu.rpy[1],
+            imu.rpy[2],
+            *contact.tolist()  # Flatten tensor to list
+        ]
+        self.data_log.append(log_entry)
+        #####################################################################################
+
+
         # Convert all placeholders to tensors
         placeholder_base_ang_vel = torch.tensor(
             [x * 0.25 for x in self.low_state_buffer.imu_state.gyroscope],
@@ -505,15 +530,14 @@ class UnitreeRos2Real(Node):
         )   # [1,3]
 
         
-        placeholder_base_ang_vel[2] = placeholder_base_ang_vel[2] + (self.low_state_buffer.imu_state.rpy[2]) * 0.3
+        # placeholder_base_ang_vel[2] = placeholder_base_ang_vel[2] + (self.low_state_buffer.imu_state.rpy[2]) * 0.3
+        # placeholder_base_ang_vel[2] = 0
         
-        # print("self.low_state_buffer.imu_state.gyroscope: ", self.low_state_buffer.imu_state.gyroscope)
 
         placeholder_imu_obs = torch.tensor(
             [self.low_state_buffer.imu_state.rpy[0], self.low_state_buffer.imu_state.rpy[1]],
             device=self.model_device, dtype=torch.float32
         )   # [1,2]
-        # print("self.low_state_buffer.imu_state.rpy: ", self.low_state_buffer.imu_state.rpy)
 
         placeholder_0_delta_yaw = torch.tensor([0], device=self.model_device, dtype=torch.float32)   # [1,1]
         placeholder_delta_yaw = torch.tensor([0], device=self.model_device, dtype=torch.float32)   # will be predicted by depth_encoder
