@@ -503,27 +503,27 @@ class UnitreeRos2Real(Node):
         ######################################################################################
         ############################## Record sensor data ####################################
         ######################################################################################
-        imu = self.low_state_buffer.imu_state
+        # imu = self.low_state_buffer.imu_state
 
-        # Get contact data and reindex it
-        contact = self.reindex_feet(self._get_contact_filt_obs() - 0.5)
+        # # Get contact data and reindex it
+        # contact = self.reindex_feet(self._get_contact_filt_obs() - 0.5)
 
-        # Record data: step_count, 3 gyro, 3 rpy, 4 contacts
-        log_entry = [
-            self.step_count,
-            imu.gyroscope[0],
-            imu.gyroscope[1],
-            imu.gyroscope[2],
-            imu.rpy[0],
-            imu.rpy[1],
-            imu.rpy[2],
-            *contact.tolist()  # Flatten tensor to list
-        ]
-        self.data_log.append(log_entry)
+        # # Record data: step_count, 3 gyro, 3 rpy, 4 contacts
+        # log_entry = [
+        #     self.step_count,
+        #     imu.gyroscope[0],
+        #     imu.gyroscope[1],
+        #     imu.gyroscope[2],
+        #     imu.rpy[0],
+        #     imu.rpy[1],
+        #     imu.rpy[2],
+        #     *contact.flatten().tolist()  # Flatten tensor to list
+        # ]
+        # self.data_log.append(log_entry)
 
-        if self.step_count % 20 == 0:
-            save_path = os.path.expanduser("~/parkour/plot/full_sensor_log.npy")
-            np.save(save_path, np.array(self.data_log)) # shape: (step, 11)
+        # if self.step_count % 20 == 0:
+        #     save_path = os.path.expanduser("~/parkour/plot/full_sensor_log.npy")
+        #     np.save(save_path, np.array(self.data_log)) # shape: (step, 11)
         #####################################################################################
 
 

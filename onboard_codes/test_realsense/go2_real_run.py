@@ -54,6 +54,7 @@ class Go2Node(UnitreeRos2Real):
         self.depth_latent = torch.zeros(1, 32, device=self.device)  # Initialize depth_latent to zeros
 
         self.yaw_log = []
+        self.log_entry = []
         
     def register_models(self, stand_model, estimator_model, depth_encoder_model, depth_actor_model):
         self.stand_model = stand_model
@@ -65,6 +66,8 @@ class Go2Node(UnitreeRos2Real):
         self.use_stand_policy = False # Start with standing model
         self.use_parkour_policy = False
         self.use_sport_mode = True
+
+        self.balance_policy_mode = False
 
     def start_main_loop_timer(self, duration):
         self.main_loop_timer = self.create_timer(
@@ -81,19 +84,25 @@ class Go2Node(UnitreeRos2Real):
             if (self.joy_stick_buffer.keys & self.WirelessButtons.X):
                 self.get_logger().info("X pressed, Robot balance stand")
                 self._sport_mode_change(ROBOT_SPORT_API_ID_BALANCESTAND)
+                self.balance_policy_mode = True
             if (self.joy_stick_buffer.keys & self.WirelessButtons.L2):
                 self.get_logger().info("L2 pressed, Robot sit down")
                 self._sport_mode_change(ROBOT_SPORT_API_ID_STANDDOWN)
+                self.balance_policy_mode = False
             if (self.joy_stick_buffer.keys & self.WirelessButtons.R1):
                 self.get_logger().info("R1 pressed, Switch to stand policy")
                 self.use_sport_mode = False
                 self._sport_state_change(0)
                 self.use_stand_policy = True
                 self.use_parkour_policy = False
+                self.balance_policy_mode = False
+
+        if self.balance_policy_mode:
+            self.get_logger().info("X pressed, recordning balance mode data")
+            obs_balance = self.read_observation()
 
         if self.use_stand_policy:
             obs = self._get_dof_pos_obs() # do not multiply by obs_scales["dof_pos"]
-
             obs_parkour = self.read_observation()   # torch.Size([1, 753])
             
             action = self.stand_model(obs)
@@ -140,14 +149,14 @@ class Go2Node(UnitreeRos2Real):
 
             ####################################################################
             ##########################log yaw data##############################
-            self.log_entry = [self.step_count,
-                         self.obs[:, 6],
-                         self.obs[:, 7]]
-            self.yaw_log.append(self.log_entry)
+            # self.log_entry = [self.step_count,
+            #              self.obs[:, 6].item(),
+            #              self.obs[:, 7].item()]
+            # self.yaw_log.append(self.log_entry)
 
-            if self.step_count % 20 == 0:
-                save_path = os.path.expanduser("~/parkour/plot/yaw_log.npy")
-                np.save(save_path, np.array(self.yaw_log)) # shape: (step, 11)
+            # if self.step_count % 20 == 0:
+            #     save_path = os.path.expanduser("~/parkour/plot/yaw_log.npy")
+            #     np.save(save_path, np.array(self.yaw_log)) # shape: (step, 11)
             ####################################################################
             
             
