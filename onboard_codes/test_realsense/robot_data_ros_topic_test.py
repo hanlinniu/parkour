@@ -520,6 +520,10 @@ class UnitreeRos2Real(Node):
             *contact.tolist()  # Flatten tensor to list
         ]
         self.data_log.append(log_entry)
+
+        if self.step_count % 20 == 0:
+            save_path = os.path.expanduser("~/parkour/plot/full_sensor_log.npy")
+            np.save(save_path, np.array(self.data_log)) # shape: (step, 11)
         #####################################################################################
 
 

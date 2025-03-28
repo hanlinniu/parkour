@@ -144,6 +144,10 @@ class Go2Node(UnitreeRos2Real):
                          self.obs[:, 6],
                          self.obs[:, 7]]
             self.yaw_log.append(self.log_entry)
+
+            if self.step_count % 20 == 0:
+                save_path = os.path.expanduser("~/parkour/plot/yaw_log.npy")
+                np.save(save_path, np.array(self.yaw_log)) # shape: (step, 11)
             ####################################################################
             
             
@@ -157,8 +161,6 @@ class Go2Node(UnitreeRos2Real):
         if (self.joy_stick_buffer.keys & self.WirelessButtons.R2):
             if self.use_parkour_policy:
                 self.get_logger().info("R2 pressed, stop using parkour policy, switch to sport mode")
-                np.save("full_sensor_log.npy", np.array(self.data_log))
-                np.save("yaw_log.npy", np.array(self.yaw_log))
 
             if self.use_stand_policy:
                 self.get_logger().info("R2 pressed, stop using stand policy, switch to sport mode")
