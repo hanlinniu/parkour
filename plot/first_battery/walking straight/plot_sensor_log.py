@@ -1,20 +1,15 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import os
 
-# --- Load Data ---
-sensor_data = np.load("full_sensor_log.npy")  # shape: (N, 11)
-yaw_data = np.load("yaw_log.npy")             # shape: (N, 3)
+# --- Load Sensor Data ---
+sensor_data = np.load("full_sensor_log3.npy")  # shape: (N, 11)
 
 # Unpack sensor data
 step = sensor_data[:, 0]
 gyro = sensor_data[:, 1:4]
 rpy = sensor_data[:, 4:7]
 contact = sensor_data[:, 7:11]
-
-# Unpack yaw data
-yaw_step = yaw_data[:, 0]
-yaw_0 = yaw_data[:, 1]
-yaw_1 = yaw_data[:, 2]
 
 # --- Plot Gyroscope ---
 plt.figure()
@@ -48,14 +43,22 @@ plt.ylabel("Contact (0 or 1)")
 plt.legend()
 plt.grid(True)
 
-# --- Plot Yaw (from depth encoder) ---
-plt.figure()
-plt.plot(yaw_step, yaw_0, label="yaw[0] (obs[:,6])")
-plt.plot(yaw_step, yaw_1, label="yaw[1] (obs[:,7])")
-plt.title("Yaw from obs[:,6:8]")
-plt.xlabel("Step Count")
-plt.ylabel("Yaw Values")
-plt.legend()
-plt.grid(True)
+# --- Plot Yaw (from depth encoder) if file exists ---
+if os.path.exists("yaw_log.npy"):
+    yaw_data = np.load("yaw_log.npy")
+    yaw_step = yaw_data[:, 0]
+    yaw_0 = yaw_data[:, 1]
+    yaw_1 = yaw_data[:, 2]
+
+    plt.figure()
+    plt.plot(yaw_step, yaw_0, label="yaw[0] (obs[:,6])")
+    plt.plot(yaw_step, yaw_1, label="yaw[1] (obs[:,7])")
+    plt.title("Yaw from obs[:,6:8]")
+    plt.xlabel("Step Count")
+    plt.ylabel("Yaw Values")
+    plt.legend()
+    plt.grid(True)
+else:
+    print("Note: 'yaw_log.npy' not found — skipping yaw plot.")
 
 plt.show()

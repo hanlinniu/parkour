@@ -108,7 +108,7 @@ class VisualHandlerNode(Node):
         self.depth_input_pub = self.create_publisher(
             Image,
             self.depth_input_topic,
-            1,
+            3,
         )
 
         self.forward_depth_embedding_pub = self.create_publisher(
@@ -151,7 +151,7 @@ class VisualHandlerNode(Node):
         )
 
         # Step 3: Crop the resized image
-        depth_image_np_cropped = depth_image_np_resized[:-2, 10:-4]  # crop 2 pixels from bottom, 4 from both sides
+        depth_image_np_cropped = depth_image_np_resized[:-2, 4:-4]  # crop 2 pixels from bottom, 4 from both sides
         # print("original depth_image_np_cropped is ", depth_image_np_cropped)
         
 

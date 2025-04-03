@@ -517,9 +517,13 @@ class UnitreeRos2Real(Node):
             imu.rpy[0],
             imu.rpy[1],
             imu.rpy[2],
-            *contact.tolist()  # Flatten tensor to list
+            *contact.flatten().tolist()  # Flatten tensor to list
         ]
         self.data_log.append(log_entry)
+
+        if self.step_count % 20 == 0:
+            save_path = os.path.expanduser("~/parkour/plot/full_sensor_log.npy")
+            np.save(save_path, np.array(self.data_log)) # shape: (step, 11)
         #####################################################################################
 
 
@@ -613,6 +617,15 @@ class UnitreeRos2Real(Node):
         # Clip the observations
         self.obs_buffer = (torch.clamp(self.total_obs_buf, -self.clip_obs, self.clip_obs)).unsqueeze(0)
         return self.obs_buffer
+
+    def reset_obs_buffers(self):
+        self.step_count = 0
+        self.obs_buffer = torch.empty(0, device=self.model_device)
+        self.obs_history_buf = torch.empty(0, device=self.model_device)
+        self.total_obs_buf = torch.empty(0, device=self.model_device)
+        self.actions = torch.zeros(self.NUM_ACTIONS, device= self.model_device, dtype= torch.float32)
+        self.get_logger().info("Observation buffers have been reset!")
+
 
     def send_action(self, actions: torch.Tensor):
         if actions is not None:
