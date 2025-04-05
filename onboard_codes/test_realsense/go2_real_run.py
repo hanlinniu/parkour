@@ -149,14 +149,14 @@ class Go2Node(UnitreeRos2Real):
 
             ####################################################################
             ##########################log yaw data##############################
-            self.log_entry = [self.step_count,
-                         self.obs[:, 6].item(),
-                         self.obs[:, 7].item()]
-            self.yaw_log.append(self.log_entry)
+            # self.log_entry = [self.step_count,
+            #              self.obs[:, 6].item(),
+            #              self.obs[:, 7].item()]
+            # self.yaw_log.append(self.log_entry)
 
-            if self.step_count % 20 == 0:
-                save_path = os.path.expanduser("~/parkour/plot/yaw_log.npy")
-                np.save(save_path, np.array(self.yaw_log)) # shape: (step, 11)
+            # if self.step_count % 20 == 0:
+            #     save_path = os.path.expanduser("~/parkour/plot/yaw_log.npy")
+            #     np.save(save_path, np.array(self.yaw_log)) # shape: (step, 11)
             ####################################################################
             
             
