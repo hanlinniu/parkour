@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import os
 
 # --- Load Sensor Data ---
-sensor_data = np.load("full_sensor_log2.npy")  # shape: (N, 11)
+sensor_data = np.load("full_sensor_log1.npy")  # shape: (N, 11)
 
 # Unpack sensor data
 step = sensor_data[:, 0]
@@ -61,4 +61,9 @@ if os.path.exists("yaw_log.npy"):
 else:
     print("Note: 'yaw_log.npy' not found — skipping yaw plot.")
 
-plt.show()
+try:
+    plt.show()
+except KeyboardInterrupt:
+    print("\n[Interrupted] Closing plots...")
+    plt.close('all')
+

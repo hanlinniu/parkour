@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import os
 
 # --- Load Sensor Data ---
-sensor_data = np.load("full_sensor_log1.npy")  # shape: (N, 11)
+sensor_data = np.load("full_sensor_log.npy")  # shape: (N, 11)
 
 # Unpack sensor data
 step = sensor_data[:, 0]

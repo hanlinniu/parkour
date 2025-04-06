@@ -61,4 +61,9 @@ if os.path.exists("yaw_log.npy"):
 else:
     print("Note: 'yaw_log.npy' not found — skipping yaw plot.")
 
-plt.show()
+try:
+    plt.show()
+except KeyboardInterrupt:
+    print("\n[Interrupted] Closing plots...")
+    plt.close('all')
+
