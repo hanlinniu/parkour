@@ -47,8 +47,8 @@ class Go2Node(UnitreeRos2Real):
         self.infos["depth"] = None
         self.device = torch.device('cpu')
 
-        save_data_folder = os.path.expanduser("~/parkour/onboard_codes/test_realsense/saved_data")
-        self.flat_depth_data = load_model(folder_path=save_data_folder, filename="step_215_depth_data.pth")
+        # save_data_folder = os.path.expanduser("~/parkour/onboard_codes/test_realsense/saved_data")
+        # self.flat_depth_data = load_model(folder_path=save_data_folder, filename="step_215_depth_data.pth")
 
         self.yaw = torch.zeros(1, 2, device=self.device)  # Initialize yaw to zeros
         self.depth_latent = torch.zeros(1, 32, device=self.device)  # Initialize depth_latent to zeros
@@ -193,19 +193,19 @@ def main(args):
     rclpy.init()
 
     save_folder = os.path.expanduser("~/parkour/onboard_codes/test_realsense/saved_models")
-    save_data_folder = os.path.expanduser("~/parkour/onboard_codes/test_realsense/saved_data")
+    # save_data_folder = os.path.expanduser("~/parkour/onboard_codes/test_realsense/saved_data")
 
     estimator = load_model(folder_path=save_folder, filename="estimator.pth")
     depth_encoder = load_model(folder_path=save_folder, filename="depth_encoder.pth")
     depth_actor = load_model(folder_path=save_folder, filename="depth_actor.pth")
 
-    flat_depth_data = load_model(folder_path=save_data_folder, filename="step_215_depth_data.pth")
+    # flat_depth_data = load_model(folder_path=save_data_folder, filename="step_215_depth_data.pth")
 
     # Print loaded models
     print("Loaded estimator is:", estimator)
     print("Loaded depth_encoder is:", depth_encoder)
     print("Loaded depth_actor is:", depth_actor)
-    print("flat_depth_data is:", flat_depth_data)
+    # print("flat_depth_data is:", flat_depth_data)
 
 
     # estimator.eval()
