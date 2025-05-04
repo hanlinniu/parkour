@@ -135,9 +135,9 @@ class Go2Node(UnitreeRos2Real):
             else: self.infos["depth"] = None
 
             if self.infos["depth"] is not None:
-                print("self.loop_counter is ", self.loop_counter)
+                # print("self.loop_counter is ", self.loop_counter)
                 print("depth image is here!")
-                print("self.infosdepth is ", self.infos["depth"][:, -10:, -10:])
+                # print("self.infosdepth is ", self.infos["depth"][:, -10:, -10:])
                 self.obs_student = self.obs[:, :53].clone()
                 self.obs_student[:, 6:8] = 0
                 self.depth_latent_and_yaw = self.depth_encoder_model(self.infos["depth"], self.obs_student)  #  output torch.Size([1, 34])
@@ -232,7 +232,7 @@ def main(args):
         depth_encoder, 
         depth_actor
     )
-    
+    env_node.start_ros_handlers()
     env_node.start_main_loop_timer(duration=0.02)
     rclpy.spin(env_node)
     rclpy.shutdown()
