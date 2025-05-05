@@ -10,6 +10,8 @@ from collections import OrderedDict
 from copy import deepcopy
 import numpy as np
 import torch
+from torch import nn
+from rsl_rl.modules import RecurrentDepthBackbone, DepthOnlyFCBackbone58x87
 import torch.nn.functional as F
 from torch.autograd import Variable
 
@@ -43,6 +45,7 @@ class Go2Node(UnitreeRos2Real):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, robot_class_name= "Go2", **kwargs)
         self.loop_counter = 0
+        self.loop_counter_warmup = 0
         self.infos = {}
         self.infos["depth"] = None
         self.device = torch.device('cpu')
@@ -52,6 +55,9 @@ class Go2Node(UnitreeRos2Real):
 
         self.yaw = torch.zeros(1, 2, device=self.device)  # Initialize yaw to zeros
         self.depth_latent = torch.zeros(1, 32, device=self.device)  # Initialize depth_latent to zeros
+
+        self.yaw_warmup = torch.zeros(1, 2, device=self.device)  # Initialize yaw to zeros
+        self.depth_latent_warmup = torch.zeros(1, 32, device=self.device)
 
         self.yaw_log = []
         self.log_entry = []
@@ -74,6 +80,56 @@ class Go2Node(UnitreeRos2Real):
             duration, # in sec
             self.main_loop,
         )
+
+    def warm_up(self):
+        for _ in range(5):
+            start_time = time.monotonic()
+
+            obs = self.read_observation()   # torch.Size([1, 753])
+            get_obs_time = time.monotonic()
+
+            vision_obs = self._get_depth_obs() 
+            get_vision_time = time.monotonic()
+
+            if (self.loop_counter_warmup % 5 == 0) & (vision_obs is not None):
+                self.infos["depth"] = vision_obs.clone()
+            else: self.infos["depth"] = None
+
+            if self.infos["depth"] is not None:
+                # print("self.loop_counter is ", self.loop_counter)
+                print("depth image is here!")
+                # print("self.infosdepth is ", self.infos["depth"][:, -10:, -10:])
+                obs_student = obs[:, :53].clone()
+                obs_student[:, 6:8] = 0
+                depth_latent_and_yaw = self.depth_encoder_model(self.infos["depth"], obs_student)  #  output torch.Size([1, 34])
+                self.depth_latent_warmup = depth_latent_and_yaw[:, :-2]  # torch.Size([1, 32])
+                self.yaw_warmup = depth_latent_and_yaw[:, -2:]  # torch.Size([1, 2])
+                print("it is using depth camera, infos has depth info")
+            else:
+                print("it is using depth camera, infos has no depth info")
+
+            get_vision_latent_time = time.monotonic()
+            obs[:, 6:8] = 1.5*self.yaw_warmup
+
+            obs_est = obs.clone()
+            priv_states_estimated = self.estimator_model(obs_est[:, :53])         # output is 9, estimate velocity stuff
+            obs_est[:, 53+132:53+132+9] = priv_states_estimated.clone()
+
+            get_obs_est_time = time.monotonic()
+
+            actions = self.depth_actor_model(self.obs_est.detach(), hist_encoding=True, scandots_latent=self.depth_latent_warmup)
+            publish_time = time.monotonic()
+
+            print("*"*50)
+            print("warm up: ",
+                "get obs time: {:.5f}".format(get_obs_time - start_time),
+                "get vision time: {:.5f}".format(get_vision_time - get_obs_time),
+                "get vision latent time: {:.5f}".format(get_vision_latent_time - get_vision_time),
+                "get obs est time: {:.5f}".format(get_obs_est_time - start_time),
+                "policy_time: {:.5f}".format(publish_time- get_obs_est_time),
+                "total time: {:.5f}".format(publish_time - start_time)
+            )
+            self.loop_counter_warmup += 1   
         
     def main_loop(self):
 
@@ -192,36 +248,32 @@ class Go2Node(UnitreeRos2Real):
 def main(args):
     rclpy.init()
 
-    save_folder = os.path.expanduser("~/parkour/onboard_codes/test_realsense/saved_models")
-    # save_data_folder = os.path.expanduser("~/parkour/onboard_codes/test_realsense/saved_data")
-
-    estimator = load_model(folder_path=save_folder, filename="estimator.pth")
-    depth_encoder = load_model(folder_path=save_folder, filename="depth_encoder.pth")
-    depth_actor = load_model(folder_path=save_folder, filename="depth_actor.pth")
-
-    # flat_depth_data = load_model(folder_path=save_data_folder, filename="step_215_depth_data.pth")
-
-    # Print loaded models
-    print("Loaded estimator is:", estimator)
-    print("Loaded depth_encoder is:", depth_encoder)
-    print("Loaded depth_actor is:", depth_actor)
-    # print("flat_depth_data is:", flat_depth_data)
-
-
-    # estimator.eval()
-    # depth_encoder.eval()
-    # depth_actor.eval()
-
-
+    save_folder = os.path.expanduser("~/parkour/onboard_codes/test_realsense_new_imu_jit/saved_models")
+    device = "cuda"
+    # device = torch.device('cpu')
     duration = 0.02  # for control frequency
-    device = torch.device('cpu')
+
+    base_model = torch.jit.load(os.path.join(save_folder, "0121-distill-policy-mlp-model-27000-base_jit.pt"), map_location=device)
+    base_model.eval()
+    
+    estimator = base_model.estimator.estimator
+    hist_encoder = base_model.actor.history_encoder
+    actor = base_model.actor.actor_backbone
+
+    vision_model = torch.load(os.path.join(save_folder, "0121-distill-policy-mlp-model-27000-vision_weight.pt"), map_location=device)
+    depth_backbone = DepthOnlyFCBackbone58x87(None, 32, 512)
+    depth_encoder = RecurrentDepthBackbone(depth_backbone, None).to(device)
+    depth_encoder.load_state_dict(vision_model['depth_encoder_state_dict'])
+    depth_encoder.to(device)
+    depth_encoder.eval()
+
     print("Models are loaded")
     env_node = Go2Node(
         "Go2",
         model_device= device,
         dryrun= not args.nodryrun,
     )
-    print("Models are registered")
+    
 
     zero_act_model = ZeroActModel()
     zero_act_model = torch.jit.script(zero_act_model)
@@ -230,9 +282,14 @@ def main(args):
         zero_act_model, 
         estimator, 
         depth_encoder, 
-        depth_actor
+        actor
     )
+    print("Models are registered")
+
+
+
     env_node.start_ros_handlers()
+    env_node.warm_up()
     env_node.start_main_loop_timer(duration=0.02)
     rclpy.spin(env_node)
     rclpy.shutdown()
