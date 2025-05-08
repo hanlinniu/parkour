@@ -536,7 +536,7 @@ class UnitreeRos2Real(Node):
         # imu_obs = torch.tensor([[roll, pitch]], device= self.model_device, dtype= torch.float32)
         return roll, pitch, yaw
     
-    def read_observation(self):
+    def read_observation(self, commands: float = 0.54, parkour_or_walk: list = [1, 0]):
         self.step_count += 1
 
         ######################################################################################
@@ -576,11 +576,6 @@ class UnitreeRos2Real(Node):
             device=self.model_device, dtype=torch.float32
         )   # [1,3]
 
-        
-        # placeholder_base_ang_vel[2] = placeholder_base_ang_vel[2] + (self.low_state_buffer.imu_state.rpy[2]) * 0.3
-        # placeholder_base_ang_vel[2] = 0
-        
-
         placeholder_imu_obs = torch.tensor(
             [self.low_state_buffer.imu_state.rpy[0], self.low_state_buffer.imu_state.rpy[1]],
             device=self.model_device, dtype=torch.float32
@@ -589,10 +584,14 @@ class UnitreeRos2Real(Node):
         placeholder_0_delta_yaw = torch.tensor([0], device=self.model_device, dtype=torch.float32)   # [1,1]
         placeholder_delta_yaw = torch.tensor([0], device=self.model_device, dtype=torch.float32)   # will be predicted by depth_encoder
         placeholder_delta_next_yaw = torch.tensor([0], device=self.model_device, dtype=torch.float32)  # will be predicted by depth_encoder
-        placeholder_0_commands = torch.tensor([0, 0], device=self.model_device, dtype=torch.float32)  
-        placeholder_commands = torch.tensor([0.5403], device=self.model_device, dtype=torch.float32)  # self.commands[:, 0]. it is a random velocity command for x direction, range [0.3, 0.8]
-        placeholder_env_class_not_17 = torch.tensor([1], device=self.model_device, dtype=torch.float32)
-        placeholder_env_class_17 = torch.tensor([0], device=self.model_device, dtype=torch.float32)
+        placeholder_0_commands = torch.tensor([0, 0], device=self.model_device, dtype=torch.float32)
+
+        if not isinstance(parkour_or_walk, (list, tuple, torch.Tensor)):
+            raise TypeError("`parkour_or_walk` must be a list, tuple, or torch.Tensor")
+
+        placeholder_commands = torch.tensor([commands], device=self.model_device, dtype=torch.float32)  # self.commands[:, 0]. it is a random velocity command for x direction, range [0.3, 0.8]
+        placeholder_env_class_not_17 = torch.tensor(parkour_or_walk, device=self.model_device, dtype=torch.float32)
+        # placeholder_env_class_17 = torch.tensor([0], device=self.model_device, dtype=torch.float32)
 
         placeholder_dof_pos = torch.tensor(
             self.reindex((self.dof_pos_ - self.default_dof_pos.unsqueeze(0)) * 1.0),
@@ -623,7 +622,7 @@ class UnitreeRos2Real(Node):
             placeholder_0_commands,
             placeholder_commands,
             placeholder_env_class_not_17,
-            placeholder_env_class_17,
+            # placeholder_env_class_17,
             placeholder_dof_pos.flatten(),
             placeholder_dof_vel.flatten(),
             placeholder_action_history_buf.flatten(),

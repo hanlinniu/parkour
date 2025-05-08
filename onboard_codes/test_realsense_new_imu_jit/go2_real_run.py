@@ -181,41 +181,32 @@ class Go2Node(UnitreeRos2Real):
             self.use_stand_policy = False
             self.use_sport_mode = False
 
-            self.loop_counter += 1
-            self.vision_obs = self._get_depth_obs()  # torch.Size([1, 58, 87])
+            # self.vision_obs = self._get_depth_obs()  # torch.Size([1, 58, 87])
             # self.vision_obs = self.flat_depth_data
             self.obs = self.read_observation()   # torch.Size([1, 753])
 
-            if (self.loop_counter % 5 == 0) & (self.vision_obs is not None):
-                self.infos["depth"] = self.vision_obs.clone()
-            else: self.infos["depth"] = None
-
-            if self.infos["depth"] is not None:
-                # print("self.loop_counter is ", self.loop_counter)
-                print("depth image is here!")
-                # print("self.infosdepth is ", self.infos["depth"][:, -10:, -10:])
+            if self.loop_counter % 5 == 0:
+                vision_obs = self._get_depth_obs()  # torch.Size([1, 58, 87])
+                if self.loop_counter == 0:
+                    self.last_vision_obs = vision_obs.clone()
                 self.obs_student = self.obs[:, :53].clone()
-                self.obs_student[:, 6:8] = 0
-                self.depth_latent_and_yaw = self.depth_encoder_model(self.infos["depth"], self.obs_student)  #  output torch.Size([1, 34])
+                self.depth_latent_and_yaw = self.depth_encoder_model(self.last_vision_obs, self.obs_student)  #  output torch.Size([1, 34])
                 self.depth_latent = self.depth_latent_and_yaw[:, :-2]  # torch.Size([1, 32])
                 self.yaw = self.depth_latent_and_yaw[:, -2:]  # torch.Size([1, 2])
-                print("it is using depth camera, infos has depth info")
-            else:
-                print("it is using depth camera, infos has no depth info")
-
+                self.last_depth_image = vision_obs.clone()
             self.obs[:, 6:8] = 1.5*self.yaw
 
 
             ####################################################################
             ##########################log yaw data##############################
-            self.log_entry = [self.step_count,
-                         self.obs[:, 6].item(),
-                         self.obs[:, 7].item()]
-            self.yaw_log.append(self.log_entry)
+            # self.log_entry = [self.step_count,
+            #              self.obs[:, 6].item(),
+            #              self.obs[:, 7].item()]
+            # self.yaw_log.append(self.log_entry)
 
-            if self.step_count % 20 == 0:
-                save_path = os.path.expanduser("~/parkour/plot/yaw_log.npy")
-                np.save(save_path, np.array(self.yaw_log)) # shape: (step, 11)
+            # if self.step_count % 20 == 0:
+            #     save_path = os.path.expanduser("~/parkour/plot/yaw_log.npy")
+            #     np.save(save_path, np.array(self.yaw_log)) # shape: (step, 11)
             ####################################################################
             
             
@@ -225,6 +216,8 @@ class Go2Node(UnitreeRos2Real):
 
             self.actions = self.depth_actor_model(self.obs_est.detach(), hist_encoding=True, scandots_latent=self.depth_latent)
             self.send_action(self.actions)
+
+            self.loop_counter += 1
 
         if (self.joy_stick_buffer.keys & self.WirelessButtons.R2):
             if self.use_parkour_policy:
