@@ -93,20 +93,11 @@ class Go2Node(UnitreeRos2Real):
 
             if (self.loop_counter_warmup % 5 == 0) & (vision_obs is not None):
                 self.infos["depth"] = vision_obs.clone()
-            else: self.infos["depth"] = None
-
-            if self.infos["depth"] is not None:
-                # print("self.loop_counter is ", self.loop_counter)
-                print("depth image is here!")
-                # print("self.infosdepth is ", self.infos["depth"][:, -10:, -10:])
                 obs_student = obs[:, :53].clone()
                 obs_student[:, 6:8] = 0
                 depth_latent_and_yaw = self.depth_encoder_model(self.infos["depth"], obs_student)  #  output torch.Size([1, 34])
                 self.depth_latent_warmup = depth_latent_and_yaw[:, :-2]  # torch.Size([1, 32])
                 self.yaw_warmup = depth_latent_and_yaw[:, -2:]  # torch.Size([1, 2])
-                print("it is using depth camera, infos has depth info")
-            else:
-                print("it is using depth camera, infos has no depth info")
 
             get_vision_latent_time = time.monotonic()
             obs[:, 6:8] = 1.5*self.yaw_warmup
