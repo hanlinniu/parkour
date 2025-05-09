@@ -41,6 +41,29 @@ def main(args):
     hist_encoder = base_model.actor.history_encoder
     actor = base_model.actor.actor_backbone
 
+    print("*"*80)
+    print("actor modules are: ")
+    # Get all immediate children (not recursive) under actor
+    for name, module in base_model.actor.named_children():
+        if name not in ["history_encoder", "actor_backbone"]:
+            print(f"{name}: {module}")
+
+
+    import inspect
+
+    try:
+        forward_fn = base_model.actor.forward
+        sig = inspect.signature(forward_fn)
+        print(f"Signature: {sig}")
+        args = [p for p in sig.parameters.values() if p.name != "self"]
+        print(f"Number of arguments: {len(args)}")
+        print("Argument names:", [a.name for a in args])
+    except ValueError as e:
+        print("Could not inspect signature. Likely due to JIT tracing or scripting.")
+        print("Error:", e)
+
+    print("*"*80)
+
     vision_model = torch.load(os.path.join(save_folder, "0121-distill-policy-mlp-model-27000-vision_weight.pt"), map_location=device)
     depth_backbone = DepthOnlyFCBackbone58x87(None, 32, 512)
     depth_encoder = RecurrentDepthBackbone(depth_backbone, None).to(device)
@@ -48,7 +71,7 @@ def main(args):
     depth_encoder.to(device)
     depth_encoder.eval()
 
-    print("*"*20)
+    print("*"*80)
     print("estimator type:", type(estimator))
     print("estimator is:", estimator)
     print("depth_encoder type:", type(depth_encoder))
