@@ -265,11 +265,9 @@ def main(args):
         dryrun= not args.nodryrun,
     )
     
-    print("before registering 1")
 
     zero_act_model = ZeroActModel()
     zero_act_model = torch.jit.script(zero_act_model)
-    print("before registering")
 
     env_node.register_models(
         zero_act_model, 
@@ -277,9 +275,6 @@ def main(args):
         depth_encoder, 
         actor
     )
-    print("Models are registered")
-
-
 
     env_node.start_ros_handlers()
     env_node.warm_up()
