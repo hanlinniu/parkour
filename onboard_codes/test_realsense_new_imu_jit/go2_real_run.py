@@ -99,9 +99,10 @@ class Go2Node(UnitreeRos2Real):
                 self.depth_latent_warmup = depth_latent_and_yaw[:, :-2]  # torch.Size([1, 32])
                 self.yaw_warmup = depth_latent_and_yaw[:, -2:]  # torch.Size([1, 2])
 
-
+            print("before insert yaw, obs[:, 6:8]: ", obs[:, 6:8])
             get_vision_latent_time = time.monotonic()
             obs[:, 6:8] = 1.5*self.yaw_warmup
+            print("after insert yaw, obs[:, 6:8]: ", obs[:, 6:8])
 
             lin_vel_latent = self.estimator_model(obs[:, :53])         # output is 9, estimate velocity stuff
             get_obs_est_time = time.monotonic()
@@ -202,13 +203,19 @@ class Go2Node(UnitreeRos2Real):
             #     save_path = os.path.expanduser("~/parkour/plot/yaw_log.npy")
             #     np.save(save_path, np.array(self.yaw_log)) # shape: (step, 11)
             ####################################################################
-            
-            
-            self.obs_est = self.obs.clone()
-            self.priv_states_estimated = self.estimator_model(self.obs_est[:, :53])         # output is 9, estimate velocity stuff
-            self.obs_est[:, 53+132:53+132+9] = self.priv_states_estimated.clone()
+            self.lin_vel_latent = self.estimator_model(self.obs[:, :53])         # output is 9, estimate velocity stuff
+            activation = nn.ELU()
+            self.priv_latent = self.hist_encoder(activation, self.obs[:, -530:].view(-1, 10, 53))
+            obs_cat = torch.cat([self.obs[:, :53], self.depth_latent, self.lin_vel_latent, self.priv_latent], dim=-1)
+            self.actions = self.depth_actor_model(obs_cat)
 
-            self.actions = self.depth_actor_model(self.obs_est.detach(), hist_encoding=True, scandots_latent=self.depth_latent)
+
+            
+            # self.obs_est = self.obs.clone()
+            # self.priv_states_estimated = self.estimator_model(self.obs[:, :53])         # output is 9, estimate velocity stuff
+            # self.obs_est[:, 53+132:53+132+9] = self.priv_states_estimated.clone()
+
+            # self.actions = self.depth_actor_model(self.obs_est.detach(), hist_encoding=True, scandots_latent=self.depth_latent)
             self.send_action(self.actions)
 
             self.loop_counter += 1
