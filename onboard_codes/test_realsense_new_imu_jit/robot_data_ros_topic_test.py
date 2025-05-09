@@ -91,19 +91,19 @@ class RobotCfgs:
             1.0472, 3.4907, -0.83776,
             1.0472, 4.5379, -0.83776,
             1.0472, 4.5379, -0.83776,
-        ], device= "cpu", dtype= torch.float32)
+        ], device= "cuda", dtype= torch.float32)
         joint_limits_low = torch.tensor([
             -1.0472, -1.5708, -2.7227,
             -1.0472, -1.5708, -2.7227,
             -1.0472, -0.5236, -2.7227,
             -1.0472, -0.5236, -2.7227,
-        ], device= "cpu", dtype= torch.float32)
+        ], device= "cuda", dtype= torch.float32)
         torque_limits = torch.tensor([ # from urdf and in simulation order
             25, 40, 40,
             25, 40, 40,
             25, 40, 40,
             25, 40, 40,
-        ], device= "cpu", dtype= torch.float32)
+        ], device= "cuda", dtype= torch.float32)
         turn_on_motor_mode = [0x01] * 12
 
         default_joint_angles = {
@@ -167,7 +167,7 @@ class UnitreeRos2Real(Node):
             cmd_nyaw_range= [0.4, 1.6], # check joy_stick_callback (p for positive, n for negative)
             replace_obs_with_embeddings= [], # a list of strings, e.g. ["forward_depth"] then the corrseponding obs will be processed by _get_forward_depth_embedding_obs()
             move_by_wireless_remote= True, # if True, the robot will be controlled by a wireless remote
-            model_device= "cpu",
+            model_device= "cuda",
             dof_pos_protect_ratio= 1.2, # if the dof_pos is out of the range of this ratio, the process will shutdown.
             robot_class_name= "Go2",
             dryrun= True, # if True, the robot will not send commands to the real robot
@@ -472,7 +472,9 @@ class UnitreeRos2Real(Node):
     def _forward_depth_callback(self, msg):
         """ store and handle depth camera data """
         normized_depth_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='32FC1')
-        self.forward_depth_buffer = torch.tensor(normized_depth_image, dtype=torch.float32).unsqueeze(0)
+        # self.forward_depth_buffer = torch.tensor(normized_depth_image, dtype=torch.float32, device=self.model_device).unsqueeze(0)
+        self.forward_depth_buffer = torch.from_numpy(normized_depth_image).float().unsqueeze(0).to(self.model_device)
+
 
 
     def _forward_depth_embedding_callback(self, msg):
@@ -593,24 +595,23 @@ class UnitreeRos2Real(Node):
         placeholder_env_class_not_17 = torch.tensor(parkour_or_walk, device=self.model_device, dtype=torch.float32)
         # placeholder_env_class_17 = torch.tensor([0], device=self.model_device, dtype=torch.float32)
 
-        placeholder_dof_pos = torch.tensor(
-            self.reindex((self.dof_pos_ - self.default_dof_pos.unsqueeze(0)) * 1.0),
-            device=self.model_device, dtype=torch.float32
-        )
-        # print("placeholder_dof_pos: ", placeholder_dof_pos)
-        
-        placeholder_dof_vel = torch.tensor(
-            self.reindex(self.dof_vel_ * 0.05),
-            device=self.model_device, dtype=torch.float32
-        )
-        placeholder_action_history_buf = torch.tensor(
-            self.actions,
-            device=self.model_device, dtype=torch.float32
-        )
-        placeholder_contact_filt = torch.tensor(
-            self.reindex_feet(self._get_contact_filt_obs() - 0.5),
-            device=self.model_device, dtype=torch.float32
-        )
+        # dof position
+        placeholder_dof_pos = self.reindex(
+            (self.dof_pos_ - self.default_dof_pos.unsqueeze(0)) * 1.0
+        ).clone().detach().to(self.model_device)
+
+        # dof velocity
+        placeholder_dof_vel = self.reindex(
+            self.dof_vel_ * 0.05
+        ).clone().detach().to(self.model_device)
+
+        # action history buffer
+        placeholder_action_history_buf = self.actions.clone().detach().to(self.model_device)
+
+        # contact filter
+        placeholder_contact_filt = self.reindex_feet(
+            self._get_contact_filt_obs() - 0.5
+        ).clone().detach().to(self.model_device)
 
         # Concatenate placeholders to create `obs_buf`
         obs_buf = torch.cat([

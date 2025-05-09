@@ -48,7 +48,7 @@ class Go2Node(UnitreeRos2Real):
         self.loop_counter_warmup = 0
         self.infos = {}
         self.infos["depth"] = None
-        self.device = torch.device('cpu')
+        self.device = torch.device('cuda')
 
         # save_data_folder = os.path.expanduser("~/parkour/onboard_codes/test_realsense/saved_data")
         # self.flat_depth_data = load_model(folder_path=save_data_folder, filename="step_215_depth_data.pth")
@@ -91,13 +91,20 @@ class Go2Node(UnitreeRos2Real):
             vision_obs = self._get_depth_obs() 
             get_vision_time = time.monotonic()
 
+            print("vision_obs device:", vision_obs.device)
+
             if (self.loop_counter_warmup % 5 == 0) & (vision_obs is not None):
-                self.infos["depth"] = vision_obs.clone()
+                self.infos["depth"] = vision_obs.clone().to(self.device)
+                print("self.infos[depth] device:", self.infos["depth"].device)
+                
                 obs_student = obs[:, :53].clone()
                 obs_student[:, 6:8] = 0
                 depth_latent_and_yaw = self.depth_encoder_model(self.infos["depth"], obs_student)  #  output torch.Size([1, 34])
                 self.depth_latent_warmup = depth_latent_and_yaw[:, :-2]  # torch.Size([1, 32])
                 self.yaw_warmup = depth_latent_and_yaw[:, -2:]  # torch.Size([1, 2])
+
+                print("obs_student device:", obs_student.device)
+                print("model device:", next(self.depth_encoder_model.parameters()).device)
 
             get_vision_latent_time = time.monotonic()
             obs[:, 6:8] = 1.5*self.yaw_warmup
@@ -108,7 +115,7 @@ class Go2Node(UnitreeRos2Real):
 
             get_obs_est_time = time.monotonic()
 
-            actions = self.depth_actor_model(self.obs_est.detach(), hist_encoding=True, scandots_latent=self.depth_latent_warmup)
+            actions = self.depth_actor_model(obs_est.detach(), hist_encoding=True, scandots_latent=self.depth_latent_warmup)
             publish_time = time.monotonic()
 
             print("*"*50)
@@ -258,9 +265,11 @@ def main(args):
         dryrun= not args.nodryrun,
     )
     
+    print("before registering 1")
 
     zero_act_model = ZeroActModel()
     zero_act_model = torch.jit.script(zero_act_model)
+    print("before registering")
 
     env_node.register_models(
         zero_act_model, 
@@ -274,7 +283,7 @@ def main(args):
 
     env_node.start_ros_handlers()
     env_node.warm_up()
-    env_node.start_main_loop_timer(duration=0.02)
+    # env_node.start_main_loop_timer(duration=0.02)
     rclpy.spin(env_node)
     rclpy.shutdown()
 

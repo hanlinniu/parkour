@@ -235,7 +235,7 @@ def main(args):
     # with open(osp.join(args.logdir, "config.json"), "r") as f:
     #     config_dict = json.load(f, object_pairs_hook= OrderedDict)
         
-    device = "cpu"
+    device = "cuda"
     duration = camera_cfg["sensor"]["forward_camera"]["refresh_duration"] # in sec
 
     visual_node = VisualHandlerNode(
