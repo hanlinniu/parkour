@@ -62,10 +62,11 @@ class Go2Node(UnitreeRos2Real):
         self.yaw_log = []
         self.log_entry = []
         
-    def register_models(self, stand_model, estimator_model, depth_encoder_model, depth_actor_model):
+    def register_models(self, stand_model, estimator_model, hist_encoder, depth_encoder_model, depth_actor_model):
         self.stand_model = stand_model
 
         self.estimator_model = estimator_model
+        self.hist_encoder = hist_encoder
         self.depth_encoder_model = depth_encoder_model
         self.depth_actor_model = depth_actor_model
         
@@ -88,34 +89,29 @@ class Go2Node(UnitreeRos2Real):
             obs = self.read_observation()   # torch.Size([1, 753])
             get_obs_time = time.monotonic()
 
-            vision_obs = self._get_depth_obs() 
-            get_vision_time = time.monotonic()
 
-            print("vision_obs device:", vision_obs.device)
+            if (self.loop_counter_warmup % 5 == 0) :
+                vision_obs = self._get_depth_obs() 
+                get_vision_time = time.monotonic()
 
-            if (self.loop_counter_warmup % 5 == 0) & (vision_obs is not None):
-                self.infos["depth"] = vision_obs.clone().to(self.device)
-                print("self.infos[depth] device:", self.infos["depth"].device)
-                
                 obs_student = obs[:, :53].clone()
-                obs_student[:, 6:8] = 0
-                depth_latent_and_yaw = self.depth_encoder_model(self.infos["depth"], obs_student)  #  output torch.Size([1, 34])
+                depth_latent_and_yaw = self.depth_encoder_model(vision_obs, obs_student)  #  output torch.Size([1, 34])
                 self.depth_latent_warmup = depth_latent_and_yaw[:, :-2]  # torch.Size([1, 32])
                 self.yaw_warmup = depth_latent_and_yaw[:, -2:]  # torch.Size([1, 2])
 
-                print("obs_student device:", obs_student.device)
-                print("model device:", next(self.depth_encoder_model.parameters()).device)
 
             get_vision_latent_time = time.monotonic()
             obs[:, 6:8] = 1.5*self.yaw_warmup
 
-            obs_est = obs.clone()
-            priv_states_estimated = self.estimator_model(obs_est[:, :53])         # output is 9, estimate velocity stuff
-            obs_est[:, 53+132:53+132+9] = priv_states_estimated.clone()
-
+            lin_vel_latent = self.estimator_model(obs[:, :53])         # output is 9, estimate velocity stuff
             get_obs_est_time = time.monotonic()
 
-            actions = self.depth_actor_model(obs_est.detach(), hist_encoding=True, scandots_latent=self.depth_latent_warmup)
+            activation = nn.ELU()
+            priv_latent = self.hist_encoder(activation, obs[:, -530:].view(-1, 10, 53))
+
+            obs_cat = torch.cat([obs[:, :53], self.depth_latent_warmup, lin_vel_latent, priv_latent], dim=-1)
+
+            actions = self.depth_actor_model(obs_cat)
             publish_time = time.monotonic()
 
             print("*"*50)
@@ -271,7 +267,8 @@ def main(args):
 
     env_node.register_models(
         zero_act_model, 
-        estimator, 
+        estimator,
+        hist_encoder, 
         depth_encoder, 
         actor
     )
