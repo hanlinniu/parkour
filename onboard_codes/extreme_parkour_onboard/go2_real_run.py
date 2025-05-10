@@ -144,7 +144,7 @@ class Go2Node(UnitreeRos2Real):
 
         if self.balance_policy_mode:
             self.get_logger().info("X pressed, recordning balance mode data")
-            obs_balance = self.read_observation()
+            # obs_balance = self.read_observation()
 
         if self.use_stand_policy:
             obs = self._get_dof_pos_obs() # do not multiply by obs_scales["dof_pos"]

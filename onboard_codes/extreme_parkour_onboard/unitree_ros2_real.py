@@ -5,8 +5,12 @@ from rclpy.node import Node
 from unitree_go.msg import (
     WirelessController,
     LowState,
+    SportModeState,
     LowCmd,
 )
+
+from unitree_api.msg import Request, RequestHeader
+
 from std_msgs.msg import Float32MultiArray
 if os.uname().machine in ["x86_64", "amd64"]:
     sys.path.append(os.path.join(
@@ -86,19 +90,19 @@ class RobotCfgs:
             1.0472, 3.4907, -0.83776,
             1.0472, 4.5379, -0.83776,
             1.0472, 4.5379, -0.83776,
-        ], device= "cpu", dtype= torch.float32)
+        ], device= "cuda", dtype= torch.float32)
         joint_limits_low = torch.tensor([
             -1.0472, -1.5708, -2.7227,
             -1.0472, -1.5708, -2.7227,
             -1.0472, -0.5236, -2.7227,
             -1.0472, -0.5236, -2.7227,
-        ], device= "cpu", dtype= torch.float32)
+        ], device= "cuda", dtype= torch.float32)
         torque_limits = torch.tensor([ # from urdf
             25, 40, 40,
             25, 40, 40,
             25, 40, 40,
             25, 40, 40,
-        ], device= "cpu", dtype= torch.float32)
+        ], device= "cuda", dtype= torch.float32)
         turn_on_motor_mode = [0x01] * 12
         
 
@@ -125,6 +129,7 @@ class UnitreeRos2Real(Node):
     def __init__(self,
             robot_namespace= None,
             low_state_topic= "/lowstate",
+            sport_mode_state_topic = "/sportmodestate",
             low_cmd_topic= "/lowcmd",
             joy_stick_topic= "/wirelesscontroller",
             depth_data_topic= "/forward_depth_image",
@@ -148,6 +153,7 @@ class UnitreeRos2Real(Node):
         self.NUM_ACTIONS = getattr(RobotCfgs, robot_class_name).NUM_ACTIONS
         self.robot_namespace = robot_namespace
         self.low_state_topic = low_state_topic
+        self.sport_mode_state_topic = sport_mode_state_topic
         self.low_cmd_topic = low_cmd_topic if not dryrun else low_cmd_topic + "_dryrun_" + str(np.random.randint(0, 65535))
         self.joy_stick_topic = joy_stick_topic
         self.depth_data_topic = depth_data_topic
@@ -269,6 +275,24 @@ class UnitreeRos2Real(Node):
         )
         self.get_logger().info("Low state subscriber started, waiting to receive low state messages.")
 
+        self.sport_mode_state_sub = self.create_subscription(
+            SportModeState,
+            self.sport_mode_state_topic,
+            self._sport_mode_state_callback,
+            1
+        )
+
+        self.sport_state_pub = self.create_publisher(
+            Request,
+            '/api/robot_state/request',
+            1,
+        )
+
+        self.sport_mode_pub = self.create_publisher(
+            Request,
+            '/api/sport/request',
+            1,
+        )
         self.joy_stick_sub = self.create_subscription(
             WirelessController,
             self.joy_stick_topic,
@@ -318,7 +342,50 @@ class UnitreeRos2Real(Node):
                 self.get_logger().error("The motors and this process shuts down.")
                 self._turn_off_motors()
                 raise SystemExit()
+    def _sport_mode_state_callback(self, msg):
+        """ store and handle proprioception data """
+        self.sport_mode_state_buffer = msg # keep the latest sport mode state
 
+    def _sport_state_change(self, mode):
+        msg = Request()
+
+        # Fill the header
+        msg.header.identity.id = 0
+        msg.header.identity.api_id = 1001
+        msg.header.lease.id = 0
+        msg.header.policy.priority = 0
+        msg.header.policy.noreply = False
+
+        # Fill the parameter
+        if mode==0:
+            msg.parameter = '{"name":"sport_mode","switch":0}'
+        elif mode==1:
+            msg.parameter = '{"name":"sport_mode","switch":1}'
+
+        # Binary data (optional, leave empty if not needed)
+        msg.binary = []
+
+        # Publish the request
+        self.sport_state_pub.publish(msg)
+        # self.get_logger().info(f"Request sent: {msg}")
+
+
+    def _sport_mode_change(self, mode):
+        msg = Request()
+
+        # Fill the request header for damp mode
+        msg.header.identity.id = 0  # Replace with appropriate ID if required
+        msg.header.identity.api_id = mode  # ID for damp mode
+        msg.header.lease.id = 0  # Lease ID
+        msg.header.policy.priority = 0  # Priority level
+        msg.header.policy.noreply = False  # Expect a response
+
+        # Parameter and binary data can remain empty for this mode
+        msg.parameter = ''
+        msg.binary = []
+
+        # Publish the request
+        self.sport_mode_pub.publish(msg)
     def _joy_stick_callback(self, msg):
         # self.get_logger().info("Wireless controller message received.")
         self.joy_stick_buffer = msg
@@ -359,10 +426,10 @@ class UnitreeRos2Real(Node):
         # 00000000 00000001 means pressing the 0-th button (R1)
         # 00000000 00000010 means pressing the 1-th button (L1)
         # 10000000 00000000 means pressing the 15-th button (left)
-        if (msg.keys & self.WirelessButtons.R2) or (msg.keys & self.WirelessButtons.L2): # R2 or L2 is pressed
-            self.get_logger().warn("R2 or L2 is pressed, the motors and this process shuts down.")
-            self._turn_off_motors()
-            raise SystemExit()
+        # if (msg.keys & self.WirelessButtons.R2) or (msg.keys & self.WirelessButtons.L2): # R2 or L2 is pressed
+        #     self.get_logger().warn("R2 or L2 is pressed, the motors and this process shuts down.")
+        #     self._turn_off_motors()
+        #     raise SystemExit()
 
         # roll-pitch target, not implemented yet
         if hasattr(self, "roll_pitch_yaw_cmd"):
@@ -465,8 +532,8 @@ class UnitreeRos2Real(Node):
         commands = self._get_commands_obs()  # (1, 3)
         commands_time = time.monotonic()
 
-        # parkour_walk = torch.tensor([[1, 0]], device= self.model_device, dtype= torch.float32) # parkour
-        parkour_walk = torch.tensor([[0, 1]], device= self.model_device, dtype= torch.float32) # walk
+        parkour_walk = torch.tensor([[1, 0]], device= self.model_device, dtype= torch.float32) # parkour
+        # parkour_walk = torch.tensor([[0, 1]], device= self.model_device, dtype= torch.float32) # walk
 
         dof_pos = self._get_dof_pos_obs()  # (1, 12)
         dof_pos_time = time.monotonic()
@@ -531,6 +598,15 @@ class UnitreeRos2Real(Node):
 
         return torch.clip(actions_scaled, actions_low, actions_high)
 
+    def reset_obs_buffers(self):
+        self.step_count = 0
+        self.obs_buffer = torch.empty(0, device=self.model_device)
+        self.obs_history_buf = torch.empty(0, device=self.model_device)
+        self.total_obs_buf = torch.empty(0, device=self.model_device)
+        self.actions = torch.zeros(self.NUM_ACTIONS, device= self.model_device, dtype= torch.float32)
+        self.episode_length_buf = torch.zeros(1, device=self.model_device, dtype=torch.float)
+        self.get_logger().info("Observation buffers have been reset!")
+        
     def send_action(self, actions):
         """ Send the action to the robot motors, which does the preprocessing
         just like env.step in simulation.
