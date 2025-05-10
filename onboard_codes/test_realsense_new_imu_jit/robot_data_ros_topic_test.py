@@ -207,8 +207,9 @@ class UnitreeRos2Real(Node):
 
         self.clip_obs = 100.0
         self.step_count = 0
-        self.last_contacts = [False, False, False, False]
-        self.contact_filt = [False, False, False, False]
+        # self.last_contacts = [False, False, False, False]
+        # self.contact_filt = [False, False, False, False]
+        self.contact_filt = torch.zeros((1, 4), device=self.model_device, dtype=torch.float32)
 
         self.bridge = CvBridge()
 
@@ -560,31 +561,31 @@ class UnitreeRos2Real(Node):
         ######################################################################################
         ############################## Record sensor data ####################################
         ######################################################################################
-        imu = self.low_state_buffer.imu_state
-        roll, pitch, yaw = self._get_imu_obs()
+        # imu = self.low_state_buffer.imu_state
+        # roll, pitch, yaw = self._get_imu_obs()
 
-        # Get contact data and reindex it
-        contact = self.reindex_feet(self._get_contact_filt_obs() - 0.5)
+        # # Get contact data and reindex it
+        # contact = self.reindex_feet(self._get_contact_filt_obs() - 0.5)
 
-        # Record data: step_count, 3 gyro, 3 rpy, 4 contacts
-        log_entry = [
-            self.step_count,
-            imu.gyroscope[0],
-            imu.gyroscope[1],
-            imu.gyroscope[2],
-            imu.rpy[0],
-            imu.rpy[1],
-            imu.rpy[2],
-            roll.item(),
-            pitch.item(),
-            yaw.item(),
-            *contact.flatten().tolist()  # Flatten tensor to list
-        ]
-        self.data_log.append(log_entry)
+        # # Record data: step_count, 3 gyro, 3 rpy, 4 contacts
+        # log_entry = [
+        #     self.step_count,
+        #     imu.gyroscope[0],
+        #     imu.gyroscope[1],
+        #     imu.gyroscope[2],
+        #     imu.rpy[0],
+        #     imu.rpy[1],
+        #     imu.rpy[2],
+        #     roll.item(),
+        #     pitch.item(),
+        #     yaw.item(),
+        #     *contact.flatten().tolist()  # Flatten tensor to list
+        # ]
+        # self.data_log.append(log_entry)
 
-        if self.step_count % 20 == 0:
-            save_path = os.path.expanduser("~/parkour/plot/full_sensor_log.npy")
-            np.save(save_path, np.array(self.data_log)) # shape: (step, 11)
+        # if self.step_count % 20 == 0:
+        #     save_path = os.path.expanduser("~/parkour/plot/full_sensor_log.npy")
+        #     np.save(save_path, np.array(self.data_log)) # shape: (step, 11)
         #####################################################################################
 
 
@@ -633,10 +634,23 @@ class UnitreeRos2Real(Node):
 
         placeholder_contact_filt = self._get_contact_filt_obs()    # (1, 4)
 
+        # print("placeholder_base_ang_vel shape is ", placeholder_base_ang_vel.shape)
+        # print("placeholder_imu_obs shape is ", placeholder_imu_obs.shape)
+        # print("placeholder_0_delta_yaw shape is ", placeholder_0_delta_yaw.shape)
+        # print("placeholder_delta_yaw shape is ", placeholder_delta_yaw.shape)
+        # print("placeholder_delta_next_yaw shape is ", placeholder_delta_next_yaw.shape)
+        # print("placeholder_0_commands shape is ", placeholder_0_commands.shape)
+        # print("placeholder_commands shape is ", placeholder_commands.shape)
+        # print("placeholder_env_class_not_17 shape is ", placeholder_env_class_not_17.shape)
+        # print("placeholder_dof_pos shape is ", placeholder_dof_pos.shape)
+        # print("placeholder_dof_vel shape is ", placeholder_dof_vel.shape)
+        # print("placeholder_action_history_buf shape is ", placeholder_action_history_buf.shape)
+        # print("placeholder_contact_filt shape is ", placeholder_contact_filt.shape)
+
         # Concatenate placeholders to create `obs_buf`
         obs_buf = torch.cat([
             placeholder_base_ang_vel,
-            placeholder_imu_obs,
+            placeholder_imu_obs.flatten(),
             placeholder_0_delta_yaw,
             placeholder_delta_yaw,
             placeholder_delta_next_yaw,
