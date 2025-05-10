@@ -41,8 +41,7 @@ def get_euler_xyz(q):
     qx, qy, qz, qw = 0, 1, 2, 3
     # roll (x-axis rotation)
     sinr_cosp = 2.0 * (q[:, qw] * q[:, qx] + q[:, qy] * q[:, qz])
-    cosr_cosp = q[:, qw] * q[:, qw] - q[:, qx] * \
-        q[:, qx] - q[:, qy] * q[:, qy] + q[:, qz] * q[:, qz]
+    cosr_cosp = 1.0 - 2.0 * (q[:, qx] * q[:, qx] + q[:, qy] * q[:, qy])
     roll = torch.atan2(sinr_cosp, cosr_cosp)
 
     # pitch (y-axis rotation)
@@ -52,11 +51,10 @@ def get_euler_xyz(q):
 
     # yaw (z-axis rotation)
     siny_cosp = 2.0 * (q[:, qw] * q[:, qz] + q[:, qx] * q[:, qy])
-    cosy_cosp = q[:, qw] * q[:, qw] + q[:, qx] * \
-        q[:, qx] - q[:, qy] * q[:, qy] - q[:, qz] * q[:, qz]
+    cosy_cosp = 1.0 - 2.0 * (q[:, qy] * q[:, qy] + q[:, qz] * q[:, qz])
     yaw = torch.atan2(siny_cosp, cosy_cosp)
 
-    return roll % (2*np.pi), pitch % (2*np.pi), yaw % (2*np.pi)
+    return roll, pitch, yaw
 
 class RobotCfgs:
     class Go2:
@@ -155,6 +153,7 @@ class UnitreeRos2Real(Node):
             low_cmd_topic= "/lowcmd",
             joy_stick_topic= "/wirelesscontroller",
             forward_depth_topic= "/camera/forward_depth", # if None and still need access, set to str "pyrealsense"
+            depth_data_topic= "/forward_depth_image",
             forward_depth_embedding_topic= None,  # "/forward_depth_embedding",
             cfg= dict(),
             lin_vel_deadband= 0.1,
@@ -182,6 +181,7 @@ class UnitreeRos2Real(Node):
         self.low_cmd_topic = low_cmd_topic if not dryrun else low_cmd_topic + "_dryrun_" + str(np.random.randint(0, 65535))
         self.joy_stick_topic = joy_stick_topic
         self.forward_depth_topic = forward_depth_topic
+        self.depth_data_topic = depth_data_topic
         self.forward_depth_embedding_topic = forward_depth_embedding_topic
         self.dryrun = dryrun
 
@@ -298,21 +298,28 @@ class UnitreeRos2Real(Node):
             1
         )
 
-        if self.forward_depth_topic is not None:
-            self.forward_camera_sub = self.create_subscription(
-                Image,
-                self.forward_depth_topic,
-                self._forward_depth_callback,
-                1
-            )
+        # if self.forward_depth_topic is not None:
+        #     self.forward_camera_sub = self.create_subscription(
+        #         Image,
+        #         self.forward_depth_topic,
+        #         self._forward_depth_callback,
+        #         1
+        #     )
 
-        if self.forward_depth_embedding_topic is not None and "forward_depth" in self.replace_obs_with_embeddings:
-            self.forward_depth_embedding_sub = self.create_subscription(
-                Float32MultiArray,
-                self.forward_depth_embedding_topic,
-                self._forward_depth_embedding_callback,
-                1,
-            )
+        self.depth_input_sub = self.create_subscription(
+            Float32MultiArray,
+            self.depth_data_topic,
+            self._depth_data_callback,
+            1
+        )
+        
+        # if self.forward_depth_embedding_topic is not None and "forward_depth" in self.replace_obs_with_embeddings:
+        #     self.forward_depth_embedding_sub = self.create_subscription(
+        #         Float32MultiArray,
+        #         self.forward_depth_embedding_topic,
+        #         self._forward_depth_embedding_callback,
+        #         1,
+        #     )
 
         self.get_logger().info("ROS handlers started, waiting to recieve critical low state and wireless controller messages.")
         if not self.dryrun:
@@ -475,7 +482,8 @@ class UnitreeRos2Real(Node):
         # self.forward_depth_buffer = torch.tensor(normized_depth_image, dtype=torch.float32, device=self.model_device).unsqueeze(0)
         self.forward_depth_buffer = torch.from_numpy(normized_depth_image).float().unsqueeze(0).to(self.model_device)
 
-
+    def _depth_data_callback(self, msg):
+        self.depth_data = torch.tensor(msg.data, dtype=torch.float32).reshape(1, 58, 87).to(self.model_device)
 
     def _forward_depth_embedding_callback(self, msg):
         self.forward_depth_embedding_buffer = torch.tensor(msg.data, device= self.model_device, dtype= torch.float32).view(1, -1)
@@ -483,6 +491,8 @@ class UnitreeRos2Real(Node):
     """ Done: ROS callbacks and handlers that update the buffer """
     """ refresh observation buffer and corresponding sub-functions """
 
+    def _get_depth_image(self):
+        return self.depth_data
 
     def _get_ang_vel_obs(self):
         buffer = torch.from_numpy(self.low_state_buffer.imu_state.gyroscope).unsqueeze(0)
@@ -503,14 +513,22 @@ class UnitreeRos2Real(Node):
     def _get_dof_pos_obs(self):
         return self.reindex(self.dof_pos_ - self.default_dof_pos.unsqueeze(0))
     
-    def _get_contact_filt_obs(self):
-        contact = [force > 20 for force in self.low_state_buffer.foot_force]
-        contact_filt = [contact[1], contact[0], contact[3], contact[2]]
-        self.contact_filt = np.logical_or(contact_filt, self.last_contacts)
-        self.last_contacts = contact_filt
-        final_contact_vec = torch.tensor(self.contact_filt).float().unsqueeze(0).to(self.model_device)
-        return final_contact_vec
+    # def _get_contact_filt_obs(self):
+    #     contact = [force > 20 for force in self.low_state_buffer.foot_force]
+    #     contact_filt = [contact[1], contact[0], contact[3], contact[2]]
+    #     self.contact_filt = np.logical_or(contact_filt, self.last_contacts)
+    #     self.last_contacts = contact_filt
+    #     final_contact_vec = torch.tensor(self.contact_filt).float().unsqueeze(0).to(self.model_device)
+    #     return final_contact_vec
 
+    def _get_contact_filt_obs(self):
+        for i in range(4):
+            if self.low_state_buffer.foot_force[i] < 25:
+                self.contact_filt[:, i] = -0.5
+            else:
+                self.contact_filt[:, i] = 0.5
+        return self.contact_filt
+    
 
     def reindex(self, vec: torch.Tensor):
         if vec is not None:
@@ -525,8 +543,6 @@ class UnitreeRos2Real(Node):
                 print("Error: The shape of the reindex_feet vec is not correct. Expected shape is (1, 4).")
         return vec[:, [1, 0, 3, 2]]
     
-
-    
     def _get_imu_obs(self):
         quat_xyzw = torch.tensor([
             self.low_state_buffer.imu_state.quaternion[1],
@@ -535,8 +551,8 @@ class UnitreeRos2Real(Node):
             self.low_state_buffer.imu_state.quaternion[0],
             ], device= self.model_device, dtype= torch.float32).unsqueeze(0)
         roll, pitch, yaw = get_euler_xyz(quat_xyzw)
-        # imu_obs = torch.tensor([[roll, pitch]], device= self.model_device, dtype= torch.float32)
-        return roll, pitch, yaw
+        imu_obs = torch.tensor([[roll, pitch]], device= self.model_device, dtype= torch.float32)
+        return imu_obs
     
     def read_observation(self, commands: float = 0.54, parkour_or_walk: list = [1, 0]):
         self.step_count += 1
@@ -578,10 +594,12 @@ class UnitreeRos2Real(Node):
             device=self.model_device, dtype=torch.float32
         )   # [1,3]
 
-        placeholder_imu_obs = torch.tensor(
-            [self.low_state_buffer.imu_state.rpy[0], self.low_state_buffer.imu_state.rpy[1]],
-            device=self.model_device, dtype=torch.float32
-        )   # [1,2]
+        # placeholder_imu_obs = torch.tensor(
+        #     [self.low_state_buffer.imu_state.rpy[0], self.low_state_buffer.imu_state.rpy[1]],
+        #     device=self.model_device, dtype=torch.float32
+        # )   # [1,2]
+
+        placeholder_imu_obs = self._get_imu_obs()  # [1,2]
 
         placeholder_0_delta_yaw = torch.tensor([0], device=self.model_device, dtype=torch.float32)   # [1,1]
         placeholder_delta_yaw = torch.tensor([0], device=self.model_device, dtype=torch.float32)   # will be predicted by depth_encoder
@@ -609,9 +627,11 @@ class UnitreeRos2Real(Node):
         placeholder_action_history_buf = self.actions.clone().detach().to(self.model_device)
 
         # contact filter
-        placeholder_contact_filt = self.reindex_feet(
-            self._get_contact_filt_obs() - 0.5
-        ).clone().detach().to(self.model_device)
+        # placeholder_contact_filt = self.reindex_feet(
+        #     self._get_contact_filt_obs() - 0.5
+        # ).clone().detach().to(self.model_device)
+
+        placeholder_contact_filt = self._get_contact_filt_obs()    # (1, 4)
 
         # Concatenate placeholders to create `obs_buf`
         obs_buf = torch.cat([

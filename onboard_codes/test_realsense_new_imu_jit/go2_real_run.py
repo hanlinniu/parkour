@@ -91,7 +91,8 @@ class Go2Node(UnitreeRos2Real):
 
 
             if (self.loop_counter_warmup % 5 == 0) :
-                vision_obs = self._get_depth_obs() 
+                # vision_obs = self._get_depth_obs()  # torch.Size([1, 58, 87])
+                vision_obs = self._get_depth_image()
                 get_vision_time = time.monotonic()
 
                 obs_student = obs[:, :53].clone()
@@ -190,7 +191,8 @@ class Go2Node(UnitreeRos2Real):
             self.obs = self.read_observation()   # torch.Size([1, 753])
 
             if self.loop_counter % 5 == 0:
-                vision_obs = self._get_depth_obs()  # torch.Size([1, 58, 87])
+                # vision_obs = self._get_depth_obs()  # torch.Size([1, 58, 87])
+                vision_obs = self._get_depth_image()
                 if self.loop_counter == 0:
                     self.last_vision_obs = vision_obs.clone()
                 self.obs_student = self.obs[:, :53].clone()
