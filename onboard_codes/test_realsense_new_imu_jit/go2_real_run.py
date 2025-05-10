@@ -99,16 +99,18 @@ class Go2Node(UnitreeRos2Real):
                 self.depth_latent_warmup = depth_latent_and_yaw[:, :-2]  # torch.Size([1, 32])
                 self.yaw_warmup = depth_latent_and_yaw[:, -2:]  # torch.Size([1, 2])
 
-            print("before insert yaw, obs[:, 6:8]: ", obs[:, 6:8])
+            
             get_vision_latent_time = time.monotonic()
-            obs[:, 6:8] = 1.5*self.yaw_warmup
-            print("after insert yaw, obs[:, 6:8]: ", obs[:, 6:8])
 
             lin_vel_latent = self.estimator_model(obs[:, :53])         # output is 9, estimate velocity stuff
             get_obs_est_time = time.monotonic()
 
             activation = nn.ELU()
             priv_latent = self.hist_encoder(activation, obs[:, -530:].view(-1, 10, 53))
+
+            print("before insert yaw, obs[:, 6:8]: ", obs[:, 6:8])
+            obs[:, 6:8] = 1.5*self.yaw_warmup
+            print("after insert yaw, obs[:, 6:8]: ", obs[:, 6:8])
 
             obs_cat = torch.cat([obs[:, :53], self.depth_latent_warmup, lin_vel_latent, priv_latent], dim=-1)
 
@@ -178,6 +180,13 @@ class Go2Node(UnitreeRos2Real):
 
             # self.vision_obs = self._get_depth_obs()  # torch.Size([1, 58, 87])
             # self.vision_obs = self.flat_depth_data
+
+            print("*"*50)
+            print("now it is in parkour policy")
+            print("self.loop_counter: ", self.loop_counter)
+            get_parkour_start_time = time.monotonic()
+
+
             self.obs = self.read_observation()   # torch.Size([1, 753])
 
             if self.loop_counter % 5 == 0:
@@ -189,7 +198,7 @@ class Go2Node(UnitreeRos2Real):
                 self.depth_latent = self.depth_latent_and_yaw[:, :-2]  # torch.Size([1, 32])
                 self.yaw = self.depth_latent_and_yaw[:, -2:]  # torch.Size([1, 2])
                 self.last_depth_image = vision_obs.clone()
-            self.obs[:, 6:8] = 1.5*self.yaw
+            
 
 
             ####################################################################
@@ -206,17 +215,14 @@ class Go2Node(UnitreeRos2Real):
             self.lin_vel_latent = self.estimator_model(self.obs[:, :53])         # output is 9, estimate velocity stuff
             activation = nn.ELU()
             self.priv_latent = self.hist_encoder(activation, self.obs[:, -530:].view(-1, 10, 53))
+            self.obs[:, 6:8] = 1.5*self.yaw
             obs_cat = torch.cat([self.obs[:, :53], self.depth_latent, self.lin_vel_latent, self.priv_latent], dim=-1)
             self.actions = self.depth_actor_model(obs_cat)
 
+            get_parkour_action_time = time.monotonic()
+            print("get_parkour_time: {:.5f}".format(get_parkour_action_time - get_parkour_start_time))
 
-            
-            # self.obs_est = self.obs.clone()
-            # self.priv_states_estimated = self.estimator_model(self.obs[:, :53])         # output is 9, estimate velocity stuff
-            # self.obs_est[:, 53+132:53+132+9] = self.priv_states_estimated.clone()
-
-            # self.actions = self.depth_actor_model(self.obs_est.detach(), hist_encoding=True, scandots_latent=self.depth_latent)
-            self.send_action(self.actions)
+            # self.send_action(self.actions)
 
             self.loop_counter += 1
 
