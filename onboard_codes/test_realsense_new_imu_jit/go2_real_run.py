@@ -83,7 +83,7 @@ class Go2Node(UnitreeRos2Real):
         )
 
     def warm_up(self):
-        for _ in range(5):
+        for _ in range(2):
             start_time = time.monotonic()
 
             obs = self.read_observation()   # torch.Size([1, 753])
@@ -108,9 +108,9 @@ class Go2Node(UnitreeRos2Real):
             activation = nn.ELU()
             priv_latent = self.hist_encoder(activation, obs[:, -530:].view(-1, 10, 53))
 
-            print("before insert yaw, obs[:, 6:8]: ", obs[:, 6:8])
+            
             obs[:, 6:8] = 1.5*self.yaw_warmup
-            print("after insert yaw, obs[:, 6:8]: ", obs[:, 6:8])
+            
 
             obs_cat = torch.cat([obs[:, :53], self.depth_latent_warmup, lin_vel_latent, priv_latent], dim=-1)
 
@@ -220,9 +220,10 @@ class Go2Node(UnitreeRos2Real):
             self.actions = self.depth_actor_model(obs_cat)
 
             get_parkour_action_time = time.monotonic()
+            print("self.actions: ", self.actions)
             print("get_parkour_time: {:.5f}".format(get_parkour_action_time - get_parkour_start_time))
 
-            # self.send_action(self.actions)
+            self.send_action(self.actions)
 
             self.loop_counter += 1
 
@@ -288,7 +289,7 @@ def main(args):
 
     env_node.start_ros_handlers()
     env_node.warm_up()
-    # env_node.start_main_loop_timer(duration=0.02)
+    env_node.start_main_loop_timer(duration=0.02)
     rclpy.spin(env_node)
     rclpy.shutdown()
 
