@@ -299,20 +299,20 @@ class UnitreeRos2Real(Node):
             1
         )
 
-        # if self.forward_depth_topic is not None:
-        #     self.forward_camera_sub = self.create_subscription(
-        #         Image,
-        #         self.forward_depth_topic,
-        #         self._forward_depth_callback,
-        #         1
-        #     )
+        if self.forward_depth_topic is not None:
+            self.forward_camera_sub = self.create_subscription(
+                Image,
+                self.forward_depth_topic,
+                self._forward_depth_callback,
+                1
+            )
 
-        self.depth_input_sub = self.create_subscription(
-            Float32MultiArray,
-            self.depth_data_topic,
-            self._depth_data_callback,
-            1
-        )
+        # self.depth_input_sub = self.create_subscription(
+        #     Float32MultiArray,
+        #     self.depth_data_topic,
+        #     self._depth_data_callback,
+        #     1
+        # )
         
         # if self.forward_depth_embedding_topic is not None and "forward_depth" in self.replace_obs_with_embeddings:
         #     self.forward_depth_embedding_sub = self.create_subscription(

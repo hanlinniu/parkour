@@ -96,7 +96,8 @@ class Go2Node(UnitreeRos2Real):
             get_hist_pro_time = time.monotonic()
 
             if self.global_counter % self.visual_update_interval == 0:
-                depth_image = self._get_depth_image()
+                depth_image = self._get_depth_obs()
+                # depth_image = self._get_depth_image()
                 self.depth_latent_yaw = self.depth_encode(depth_image, proprio)
 
             get_obs_time = time.monotonic()
@@ -187,7 +188,8 @@ class Go2Node(UnitreeRos2Real):
             # print('history proprioception: ', proprio_history)
 
             if self.global_counter % self.visual_update_interval == 0:
-                depth_image = self._get_depth_image()
+                depth_image = self._get_depth_obs()
+                # depth_image = self._get_depth_image()
                 if self.global_counter == 0:
                     self.last_depth_image = depth_image
                 self.depth_latent_yaw = self.depth_encode(self.last_depth_image, proprio)
