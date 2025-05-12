@@ -269,7 +269,7 @@ def main(args):
     env_node.get_logger().info("Motor Damping (kd): {}".format(env_node.d_gains))
 
 
-    save_folder = os.path.expanduser("~/parkour/onboard_codes/test_realsense_new_imu_jit/saved_models")
+    save_folder = os.path.expanduser("~/parkour/onboard_codes/extreme_parkour_onboard/traced")
 
     base_model = torch.jit.load(os.path.join(save_folder, "0121-distill-policy-mlp-model-27000-base_jit.pt"), map_location=device)
     base_model.eval()

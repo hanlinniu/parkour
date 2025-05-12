@@ -560,8 +560,8 @@ class UnitreeRos2Real(Node):
         commands = self._get_commands_obs()  # (1, 3)
         commands_time = time.monotonic()
 
-        # parkour_walk = torch.tensor([[1, 0]], device= self.model_device, dtype= torch.float32) # parkour
-        parkour_walk = torch.tensor([[0, 1]], device= self.model_device, dtype= torch.float32) # walk
+        parkour_walk = torch.tensor([[1, 0]], device= self.model_device, dtype= torch.float32) # parkour
+        # parkour_walk = torch.tensor([[0, 1]], device= self.model_device, dtype= torch.float32) # walk
 
         dof_pos = self._get_dof_pos_obs()  # (1, 12)
         dof_pos_time = time.monotonic()
