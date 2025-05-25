@@ -271,14 +271,14 @@ def main(args):
 
     save_folder = os.path.expanduser("~/parkour/onboard_codes/extreme_parkour_onboard/traced")
 
-    base_model = torch.jit.load(os.path.join(save_folder, "0121-distill-policy-mlp-model-27000-base_jit.pt"), map_location=device)
+    base_model = torch.jit.load(os.path.join(save_folder, "0525-distill-policy-gaussian-noise-raico-9500-base_jit.pt"), map_location=device)
     base_model.eval()
     
     estimator = base_model.estimator.estimator
     hist_encoder = base_model.actor.history_encoder
     actor = base_model.actor.actor_backbone
 
-    vision_model = torch.load(os.path.join(save_folder, "0121-distill-policy-mlp-model-27000-vision_weight.pt"), map_location=device)
+    vision_model = torch.load(os.path.join(save_folder, "0525-distill-policy-gaussian-noise-raico-9500-vision_weight.pt"), map_location=device)
     depth_backbone = DepthOnlyFCBackbone58x87(None, 32, 512)
     depth_encoder = RecurrentDepthBackbone(depth_backbone, None).to(device)
     depth_encoder.load_state_dict(vision_model['depth_encoder_state_dict'])
@@ -335,8 +335,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
 
-    parser.add_argument("--logdir", type= str, default= None, help= "The directory which contains the config.json and model_*.pt files")
-    parser.add_argument("--nodryrun", action= "store_true", default= False, help= "Disable dryrun mode")
+    parser.add_argument("--logdir", type= str, default= "traced", help= "The directory which contains the config.json and model_*.pt files")
+    parser.add_argument("--nodryrun", action= "store_true", default= True, help= "Enable dryrun mode")
     parser.add_argument("--loop_mode", type= str, default= "timer",
         choices= ["while", "timer"],
         help= "Select which mode to run the main policy control iteration",
