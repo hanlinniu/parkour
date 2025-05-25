@@ -166,6 +166,9 @@ class Go2Node(UnitreeRos2Real):
             self.use_sport_mode = False
             self.loop_counter = 0
 
+            self.reset_obs_buffers()
+            self.last_depth_image = self._get_depth_obs()
+
         if self.use_parkour_policy:
             
             self.use_stand_policy = False
