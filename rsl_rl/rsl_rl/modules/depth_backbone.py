@@ -56,7 +56,13 @@ class RecurrentDepthBackbone(nn.Module):
         return depth_latent
 
     def detach_hidden_states(self):
-        self.hidden_states = self.hidden_states.detach().clone()
+        # self.hidden_states = self.hidden_states.detach().clone()
+        if self.hidden_states is not None:
+            self.hidden_states = self.hidden_states.detach()
+
+    def reset_hidden_state(self, batch_size, device):
+        hidden_size = self.rnn.hidden_size
+        self.hidden_states = torch.zeros(1, batch_size, hidden_size, device=device)
 
 class StackDepthEncoder(nn.Module):                                     #  this functions seems useless
     def __init__(self, base_backbone, env_cfg) -> None:
@@ -115,4 +121,64 @@ class DepthOnlyFCBackbone58x87(nn.Module):
     def forward(self, images: torch.Tensor):
         images_compressed = self.image_compression(images.unsqueeze(1))    # images size is [192, 58, 87].   images.unsqueeze(1) size is [192, 1, 58, 87].  
         latent = self.output_activation(images_compressed)                 # images_compressed size is [192, 32].   latent size is [192, 32]  
+        return latent
+    
+
+
+class DepthOnlyFCBackbone58x87_single_depth_encoder(nn.Module):
+    def __init__(self, prop_dim, scandots_output_dim, hidden_state_dim, output_activation=None, num_frames=1):
+        super().__init__()
+
+        self.num_frames = num_frames
+        activation = nn.ELU()
+        last_activation = nn.Tanh()
+
+        self.image_compression = nn.Sequential(
+            # [1, 58, 87]
+            nn.Conv2d(in_channels=self.num_frames, out_channels=32, kernel_size=5),
+            # [32, 54, 83]
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            # [32, 27, 41]
+            activation,
+            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3),
+            activation,
+            nn.Flatten(),
+            # [32, 25, 39]
+            nn.Linear(64 * 25 * 39, 128),
+            activation,
+            nn.Linear(128, scandots_output_dim)
+        )
+        self.rnn = nn.GRU(input_size=32, hidden_size=hidden_state_dim, batch_first=True)
+        self.output_mlp = nn.Sequential(
+                                nn.Linear(hidden_state_dim, 32),
+                                last_activation
+                            )
+
+        if output_activation == "tanh":
+            self.output_activation = nn.Tanh()
+        else:
+            self.output_activation = activation
+
+        # Hidden state initialization
+        self.hidden_states = None
+
+    def forward(self, images: torch.Tensor):
+        # images_compressed = self.image_compression(images.unsqueeze(1))    # images size is [192, 58, 87].   images.unsqueeze(1) size is [192, 1, 58, 87].  
+        # latent = self.output_activation(images_compressed)                 # images_compressed size is [192, 32].   latent size is [192, 32]  
+        # return latent
+
+        # Compress image to feature vector
+        compressed = self.image_compression(images.unsqueeze(1))  # [batch_size, 32]
+        # compressed = self.output_activation(compressed)
+
+        # Add sequence dimension for GRU input: [batch_size, seq_len=1, feature_dim=32]
+        rnn_input = compressed.unsqueeze(1)
+
+        # Process through GRU
+        rnn_output, self.hidden_states = self.rnn(rnn_input, self.hidden_states)
+        # rnn_output shape: [batch_size, 1, 512]
+
+        # Project GRU output to 32-dim latent vector
+        latent = self.output_mlp(rnn_output.squeeze(1))  # [batch_size, 32]
+
         return latent

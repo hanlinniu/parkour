@@ -37,6 +37,9 @@ from torch.distributions import Normal
 from torch.nn.modules import rnn
 from torch.nn.modules.activation import ReLU
 
+# import depth_backbone
+# from .depth_backbone import DepthOnlyFCBackbone58x87_single_depth_encoder
+
 
 class StateHistoryEncoder(nn.Module):
     def __init__(self, activation_fn, input_size, tsteps, output_size, tanh_encoder_output=False):
@@ -47,6 +50,17 @@ class StateHistoryEncoder(nn.Module):
 
         channel_size = 10
         # last_activation = nn.ELU()
+
+
+        if activation_fn == "elu":
+            self.activation_fn = nn.ELU()
+        elif activation_fn == "relu":
+            self.activation_fn = nn.ReLU()
+        elif activation_fn == "tanh":
+            self.activation_fn = nn.Tanh()
+        else:
+            raise ValueError(f"Unsupported activation: {activation_fn}")
+        
 
         self.encoder = nn.Sequential(
                 nn.Linear(input_size, 3 * channel_size), self.activation_fn,
@@ -85,205 +99,320 @@ class StateHistoryEncoder(nn.Module):
         output = self.linear_output(output)   
         return output
 
-class Actor(nn.Module):
-    def __init__(self, num_prop, 
-                 num_scan, 
-                 num_actions, 
-                 scan_encoder_dims,             # [128, 64, 32]        from legged_robot_config.py
-                 actor_hidden_dims,             # [512, 256, 128]
-                 priv_encoder_dims,             # [64, 20]
-                 num_priv_latent,               # 29
-                 num_priv_explicit,             # 9
-                 num_hist, activation,          # 10 ELU(alpha=1.0)
-                 tanh_encoder_output=False) -> None:
+
+class depth_CNN(nn.Module):
+    def __init__(self, output_dim, output_activation=None, num_frames=2):
         super().__init__()
-        # prop -> scan -> priv_explicit -> priv_latent -> hist
-        # actor input: prop -> scan -> priv_explicit -> latent
-        self.num_prop = num_prop     # 53
-        self.num_scan = num_scan     # 132
-        self.num_hist = num_hist     # 10
-        self.num_actions = num_actions  # 12
-        self.num_priv_latent = num_priv_latent    # 29
-        self.num_priv_explicit = num_priv_explicit  # 9
-        self.if_scan_encode = scan_encoder_dims is not None and num_scan > 0                      # true
 
-        if len(priv_encoder_dims) > 0:          # [64, 20]             # priv_encoder: nn.linear           num_priv_latent is 29
-                    priv_encoder_layers = []
-                    priv_encoder_layers.append(nn.Linear(num_priv_latent, priv_encoder_dims[0]))
-                    priv_encoder_layers.append(activation)
-                    for l in range(len(priv_encoder_dims) - 1):
-                        priv_encoder_layers.append(nn.Linear(priv_encoder_dims[l], priv_encoder_dims[l + 1]))
-                        priv_encoder_layers.append(activation)
-                    self.priv_encoder = nn.Sequential(*priv_encoder_layers)
-                    priv_encoder_output_dim = priv_encoder_dims[-1]                 # 20
-                    # print("############################################################")
-                    # print("priv_encoder_output_dim is: ", priv_encoder_output_dim)
-                    # print("priv_encoder_dims is: ", priv_encoder_dims)
-                    # print("actor_hidden_dims is: ", actor_hidden_dims)
-                    # print("num_priv_latent is: ", num_priv_latent)                # 29
-                    # print("num_priv_explicit is: ", num_priv_explicit)
-                    # print("num_hist is: ", num_hist)
-                    # print("activation is: ", activation)
+        self.num_frames = num_frames
+        self.num_frames = 2
+        activation = nn.ELU()
+
+        # self.image_compression = nn.Sequential(
+        #     nn.Conv2d(in_channels=self.num_frames, out_channels=16, kernel_size=3, padding=1),  # [16, 58, 87]
+        #     nn.MaxPool2d(kernel_size=2, stride=2),                                              # [16, 29, 43]
+        #     activation,
+        #     nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, padding=1),              # [32, 29, 43]
+        #     nn.MaxPool2d(kernel_size=2, stride=2),                                              # [32, 14, 21]
+        #     activation,
+        #     nn.AdaptiveAvgPool2d((1, 1)),                                                       # [32, 1, 1]
+        #     nn.Flatten(),                                                                       # [32]
+        #     nn.Linear(32, 64),
+        #     activation,
+        #     nn.Linear(64, output_dim)
+        # )
+
+        self.image_compression = nn.Sequential(
+            # [1, 58, 87]
+            nn.Conv2d(in_channels=self.num_frames, out_channels=32, kernel_size=5),
+            # [32, 54, 83]
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            # [32, 27, 41]
+            activation,
+            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3),
+            activation,
+            nn.Flatten(),
+            # [32, 25, 39]
+            nn.Linear(64 * 25 * 39, 128),
+            activation,
+            nn.Linear(128, output_dim)
+        )
+
+        if output_activation == "tanh":
+            self.output_activation = nn.Tanh()
         else:
-            self.priv_encoder = nn.Identity()
-            priv_encoder_output_dim = num_priv_latent                # 29    Here it is a bit tricky
+            self.output_activation = activation
 
-        print("it is depth branch")
-
-        self.history_encoder = StateHistoryEncoder(activation, num_prop, num_hist, priv_encoder_output_dim)    # output is 20   # history_encoder:  nn.Conv1d
-                                                               # 53      # 10 = history_len    # 20
-        if self.if_scan_encode:              # True
-            scan_encoder = []
-            scan_encoder.append(nn.Linear(num_scan, scan_encoder_dims[0]))
-            scan_encoder.append(activation)
-            for l in range(len(scan_encoder_dims) - 1):                       # scan_encoder_dims is [128, 64, 32].  self.scan_encoder_output_dim is 32
-                if l == len(scan_encoder_dims) - 2:
-                    scan_encoder.append(nn.Linear(scan_encoder_dims[l], scan_encoder_dims[l+1]))
-                    scan_encoder.append(nn.Tanh())
-                else:
-                    scan_encoder.append(nn.Linear(scan_encoder_dims[l], scan_encoder_dims[l + 1]))
-                    scan_encoder.append(activation)
-            self.scan_encoder = nn.Sequential(*scan_encoder)
-            self.scan_encoder_output_dim = scan_encoder_dims[-1]               
-        else:
-            self.scan_encoder = nn.Identity()
-            self.scan_encoder_output_dim = num_scan
-
-        actor_layers = []
-        actor_layers.append(nn.Linear(num_prop+                                # 53
-                                      self.scan_encoder_output_dim+            # 32
-                                      num_priv_explicit+                       # 9
-                                      priv_encoder_output_dim,                 # 20
-                                      actor_hidden_dims[0]))                   # 512 
-        actor_layers.append(activation)
-        for l in range(len(actor_hidden_dims)):                                # actor_hidden_dims is [512, 256, 128]
-            if l == len(actor_hidden_dims) - 1:
-                actor_layers.append(nn.Linear(actor_hidden_dims[l], num_actions))        # the last layer gives the output dimension of action, which is num_actions: 12
-            else:
-                actor_layers.append(nn.Linear(actor_hidden_dims[l], actor_hidden_dims[l + 1]))
-                actor_layers.append(activation)
-        if tanh_encoder_output:
-            actor_layers.append(nn.Tanh())
-        self.actor_backbone = nn.Sequential(*actor_layers)
-
-    def forward(self, obs, hist_encoding: bool, eval=False, scandots_latent=None):                    
-        if not eval:                                                                      # eval can be False or True, both will work for play_test_go2.py
-            # print("############################################################")
-            # print(" it is not using eval")
-            if self.if_scan_encode:              # True
-                obs_scan = obs[:, self.num_prop:self.num_prop + self.num_scan]   # obs_scan dimension is 132
-                if scandots_latent is None:                    
-                    scan_latent = self.scan_encoder(obs_scan)   # if there is no vision, only simulated scandots.  actions_teacher is using this one with simulated scandots
-                else:
-                    scan_latent = scandots_latent               # if there is 3D camera, scandots_latent is not none     # 32
-                obs_prop_scan = torch.cat([obs[:, :self.num_prop], scan_latent], dim=1)
-            else:
-                obs_prop_scan = obs[:, :self.num_prop + self.num_scan]
-            obs_priv_explicit = obs[:, self.num_prop + self.num_scan:self.num_prop + self.num_scan + self.num_priv_explicit]     # obs_priv_explicit can be read from the robot directly
-            if hist_encoding:                   # True
-                latent = self.infer_hist_latent(obs)       # output is 20, infer privilege latent using history data
-            else:
-                latent = self.infer_priv_latent(obs)       # output is 20, input is 29, using privilege latent and priv_encoder directly, including mass_params_tensor, friction_coeffs_tensor, or motor_strength
-            backbone_input = torch.cat([obs_prop_scan, obs_priv_explicit, latent], dim=1)        # length is 114 = 53 + 32    + 9(priv_explicit) + 20(latent, from priv_latent to smaller latent)
-            backbone_output = self.actor_backbone(backbone_input)                                # length is 12
-            return backbone_output
-        else:
-            # print("############################################################")
-            # print(" it is using eval")
-            if self.if_scan_encode:          
-                obs_scan = obs[:, self.num_prop:self.num_prop + self.num_scan]
-                if scandots_latent is None:
-                    scan_latent = self.scan_encoder(obs_scan)   
-                else:
-                    scan_latent = scandots_latent
-                obs_prop_scan = torch.cat([obs[:, :self.num_prop], scan_latent], dim=1)
-            else:
-                obs_prop_scan = obs[:, :self.num_prop + self.num_scan]
-            obs_priv_explicit = obs[:, self.num_prop + self.num_scan:self.num_prop + self.num_scan + self.num_priv_explicit]
-            if hist_encoding:
-                latent = self.infer_hist_latent(obs)
-            else:
-                latent = self.infer_priv_latent(obs)
-            backbone_input = torch.cat([obs_prop_scan, obs_priv_explicit, latent], dim=1)
-            backbone_output = self.actor_backbone(backbone_input)
-            return backbone_output
+    def forward(self, images: torch.Tensor):
+        # print("images shape is :", images.shape)  # images shape is : torch.Size([1000, 2, 58, 87])
+        images_compressed = self.image_compression(images)
+        # print("after image_compression:", images_compressed.shape)
+        latent = self.output_activation(images_compressed)               
+        return latent
     
-    def infer_priv_latent(self, obs):
-        priv = obs[:, self.num_prop + self.num_scan + self.num_priv_explicit: self.num_prop + self.num_scan + self.num_priv_explicit + self.num_priv_latent]
-        return self.priv_encoder(priv)
-    
-    def infer_hist_latent(self, obs):
-        hist = obs[:, -self.num_hist*self.num_prop:]
-        return self.history_encoder(hist.view(-1, self.num_hist, self.num_prop))    #  hist.size size is [3684, 530];   hist.view(-1, self.num_hist, self.num_prop) size is [3684, 10, 53]
-    
-    def infer_scandots_latent(self, obs):
-        scan = obs[:, self.num_prop:self.num_prop + self.num_scan]
-        return self.scan_encoder(scan)
 
-class ActorCriticRMA(nn.Module):
-    is_recurrent = False
-    def __init__(self,  num_prop,
-                        num_scan,
-                        num_critic_obs,
-                        num_priv_latent,               # 29
-                        num_priv_explicit,             # 9
-                        num_hist,
-                        num_actions,
-                        scan_encoder_dims=[256, 256, 256],                      # [128, 64, 32]
-                        actor_hidden_dims=[256, 256, 256],                      # [512, 256, 128]
-                        critic_hidden_dims=[256, 256, 256],                     # [512, 256, 128]
-                        activation='elu',
-                        init_noise_std=1.0,
-                        **kwargs):
-        if kwargs:
-            print("ActorCritic.__init__ got unexpected arguments, which will be ignored: " + str([key for key in kwargs.keys()]))
-        super(ActorCriticRMA, self).__init__()
 
-        self.kwargs = kwargs
-        priv_encoder_dims= kwargs['priv_encoder_dims']
-        activation = get_activation(activation)
+
+class depth_CNN_GRU(nn.Module):
+    """
+    Memory-lean depth CNN + GRU for images shaped [B, 2, 58, 87].
+    Key changes to cut memory:
+      - Smaller channel sizes
+      - Strided convs + AdaptiveAvgPool2d(1) (no huge Flatten->Linear)
+      - Tiny GRU (64 hidden)
+      - Optional micro-batching for the CNN stage to cap peak memory
+    """
+    def __init__(self, output_dim, output_activation=None, feat_dim=64, gru_hidden=64):
+        super().__init__()
+        act = nn.ELU()
+        self._act_out = nn.Tanh() if output_activation == "tanh" else act
+
+        # Per-frame CNN (very small):
+        # 1x58x87 -> 16x29x44 -> 32x15x22 -> 48x8x11 -> GAP -> 48 -> FC 64
+        self.frame_cnn = nn.Sequential(
+            nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1),  # [B,16,29,44]
+            act,
+            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1), # [B,32,15,22]
+            act,
+            nn.Conv2d(32, 48, kernel_size=3, stride=2, padding=1), # [B,48,8,11]
+            act,
+            nn.AdaptiveAvgPool2d(1),                               # [B,48,1,1]
+            nn.Flatten(),                                          # [B,48]
+            nn.Linear(48, feat_dim),                               # [B,feat_dim]
+            act,
+        )
+
+        # Tiny GRU across the 2 time steps
+        self.gru = nn.GRU(input_size=feat_dim, hidden_size=gru_hidden, num_layers=1, batch_first=True)
+        self.head = nn.Linear(gru_hidden, output_dim)
+
+    @torch.no_grad()
+    def _cnn_chunk(self, frames: torch.Tensor, chunk: int) -> torch.Tensor:
+        """Run frame_cnn on [N,1,58,87] in chunks to reduce peak memory."""
+        if chunk is None or chunk <= 0 or frames.size(0) <= (chunk or 0):
+            return self.frame_cnn(frames)
+        outs = []
+        for i in range(0, frames.size(0), chunk):
+            outs.append(self.frame_cnn(frames[i:i+chunk]))
+        return torch.cat(outs, dim=0)
+
+    def forward(self, images: torch.Tensor, cnn_microbatch: int = 0):
+        """
+        images: [B, 2, 58, 87] (T=2 stacked as channels)
+        cnn_microbatch: if >0, splits the per-frame CNN over micro-batches to save memory
+        Returns: latent [B, output_dim]
+        """
+        assert images.dim() == 4 and images.size(1) == 2, f"expected [B,2,58,87], got {tuple(images.shape)}"
+        B, T, H, W = images.shape
+        frames = images.view(B * T, 1, H, W)  # [B*T,1,58,87]
+
+        # Encode frames with optional micro-batching
+        f = self._cnn_chunk(frames, cnn_microbatch)    # [B*T, feat_dim]
+        f = f.view(B, T, -1)                           # [B,2,feat_dim]
+
+        out, _ = self.gru(f)                           # [B,2,gru_hidden]
+        last = out[:, -1, :]                           # [B,gru_hidden]
+        latent = self.head(last)                       # [B,output_dim]
+        return self._act_out(latent)
+    
+
+    # def detach_hidden_states(self):
+    #     # self.hidden_states = self.hidden_states.detach().clone()
+    #     if self.hidden_states is not None:
+    #         self.hidden_states = self.hidden_states.detach()
+
+
+
+class ActorCritic_DWAQ(nn.Module):
+    def __init__(self, num_prop, 
+                 num_actions,
+                 num_hist,                      # 10 ELU(alpha=1.0)
+                 activation='elu',
+                 init_noise_std=1.0,
+                 **kwargs):
         
-        self.actor = Actor(num_prop, num_scan, num_actions, scan_encoder_dims, actor_hidden_dims, priv_encoder_dims, num_priv_latent, num_priv_explicit, num_hist, activation, tanh_encoder_output=kwargs['tanh_encoder_output'])
-        
-        # print("############################################################")
-        # print("scan_encoder_dims is : ", scan_encoder_dims)   # [128, 64, 32]
-        # print("actor_hidden_dims is : ", actor_hidden_dims)   # [512, 256, 128]
-        # print("critic_hidden_dims is : ", critic_hidden_dims) # [512, 256, 128]       
+        super().__init__()
+        hist_prop_num = 530
 
-        # Value function                                           # [512, 256, 128]
-        critic_layers = []
-        critic_layers.append(nn.Linear(num_critic_obs, critic_hidden_dims[0]))
-        critic_layers.append(activation)
-        for l in range(len(critic_hidden_dims)):
-            if l == len(critic_hidden_dims) - 1:
-                critic_layers.append(nn.Linear(critic_hidden_dims[l], 1))
-            else:
-                critic_layers.append(nn.Linear(critic_hidden_dims[l], critic_hidden_dims[l + 1]))
-                critic_layers.append(activation)
-        self.critic = nn.Sequential(*critic_layers)
+        critic_input_dim = 753                             # including obs, height (scan_dot), priv_explicit, priv_latent, and obs_history
+        num_scan = 132
+        self.activation = activation
+
+
+        actor_input_dim = num_prop  + 32 + 3 + 20
+
+
+        if activation == "elu":
+            self.activation = nn.ELU()
+        elif activation == "relu":
+            self.activation = nn.ReLU()
+        elif activation == "tanh":
+            self.activation = nn.Tanh()
+        else:
+            raise ValueError(f"Unsupported activation: {activation}")
+
+
+
+        # self.proprio_mlp = StateHistoryEncoder(activation, input_size=53, tsteps=10, output_size=32)
+        self.history_encoder = StateHistoryEncoder(activation, input_size=53, tsteps=10, output_size=20)
+
+        self.priv_encoder =  nn.Sequential(
+            nn.Linear(29, 64),
+            self.activation,
+            nn.Linear(64, 20),
+            nn.ELU()
+        )   # for processing the mass, friction, motor strength
+
+
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        self.cnn = depth_CNN_GRU(output_dim=32, output_activation="tanh").to(self.device)  # num_frames = 2
+
+        self.scan_decoder = nn.Sequential(
+            nn.Linear(32, 64),
+            self.activation,
+            nn.Linear(64, 256),
+            self.activation,
+            nn.Linear(256, 132)  # num_scan = 132
+        )
+
+        self.head_z_mu = nn.Linear(32 + 3, 32)  # z_mu 32 + 3
+        self.head_z_logvar = nn.Linear(32 + 3, 32)  # z_logvar 32 + 3
+
+
+        self.combination_mlp = nn.Sequential(
+            nn.Linear(32 + 53, 128),  # 32 (cnn latent) + 53 (proprioception) = 85
+            nn.ELU(),
+            nn.Linear(128, 34)
+        )
+
+        self.yaw_decoder = nn.Sequential(
+            nn.Linear(34, 16),
+            nn.ELU(),
+            nn.Linear(16, 2),
+            nn.Tanh()
+        )
+
+        self.rnn = nn.GRU(
+            input_size=34,
+            hidden_size=512,
+            batch_first=True
+        )
+
+        self.output_mlp = nn.Sequential(
+            nn.Linear(512, 32 + 2),
+            nn.Tanh()
+        )
+
+
+        self.actor = nn.Sequential(
+            nn.Linear(actor_input_dim,512),
+            self.activation,
+            nn.Linear(512,256),
+            self.activation,
+            nn.Linear(256,128),
+            self.activation,
+            nn.Linear(128,num_actions)
+        )
+
+        self.critic = nn.Sequential(
+            nn.Linear(critic_input_dim,512),
+            self.activation,
+            nn.Linear(512,256),
+            self.activation,
+            nn.Linear(256,128),
+            self.activation,
+            nn.Linear(128,1)
+        )
+
+
+       ################################################################################################################
+        self.hidden_states = None
+
+        self.cnn_hidden_states = None
 
         # Action noise
         self.std = nn.Parameter(init_noise_std * torch.ones(num_actions))
         self.distribution = None
         # disable args validation for speedup
         Normal.set_default_validate_args = False
+
+        self.counter = 0
+        self.counter_inference = 0
         
-        # seems that we get better performance without init
-        # self.init_memory_weights(self.memory_a, 0.001, 0.)
-        # self.init_memory_weights(self.memory_c, 0.001, 0.)
+
+    def forward(self):
+        raise NotImplementedError
+
+    def reparameterise(self,mean,logvar):
+        var = torch.exp(logvar*0.5)
+        code_temp = torch.randn_like(var)
+        code = mean + var*code_temp
+        return code
     
-    @staticmethod
-    # not used at the moment
-    def init_weights(sequential, scales):
-        [torch.nn.init.orthogonal_(module.weight, gain=scales[idx]) for idx, module in
-         enumerate(mod for mod in sequential if isinstance(mod, nn.Linear))]
+
+    def infer_priv_latent(self, priv):
+        return self.priv_encoder(priv)
+    
+    def infer_hist_latent(self, obs_history):
+        hist = obs_history
+        return self.history_encoder(hist.view(-1, 10, 53))    #  hist.size size is [3684, 530];   hist.view(-1, self.num_hist, self.num_prop) size is [3684, 10, 53]
+    
+    def reset_cnn_latent(self):
+        self.cnn_latent = None
+
+    def cenet_forward(self, abs_vel, priv, image_obs, obs_history, hist_encoding: bool, gen_data):
+
+        if hist_encoding:
+            priv_latent = self.infer_hist_latent(obs_history)
+        else:
+            priv_latent = self.infer_priv_latent(priv)  # priv is the mass, friction, motor strength, output size is [B, 20]
+
+        # print("*" * 50)
+        if self.counter % 5 == 0 and gen_data == True:
+            # print(f"[step {self.counter}] image_obs sum: {image_obs.sum().item()}")
+            self.cnn_latent = self.cnn(image_obs)
+            cnn_latent = self.cnn_latent
+        elif self.counter % 5 != 0 and gen_data == True:
+            # print(f"[step {self.counter}] image_obs sum: {image_obs.sum().item()}")
+            cnn_latent = self.cnn_latent
+        else:
+            cnn_latent = self.cnn(image_obs)
+
+        if gen_data == True:
+            self.counter += 1  
+
+        return priv_latent, cnn_latent
+
+
+    def cenet_forward_inference(self, abs_vel, priv, image_obs, obs_history, hist_encoding: bool, gen_data):
+
+        if hist_encoding:
+            priv_latent = self.infer_hist_latent(obs_history)
+        else:
+            priv_latent = self.infer_priv_latent(priv)  # priv is the mass, friction, motor strength, output size is [B, 20]
+
+        # print("*" * 50)
+        if self.counter_inference % 5 == 0 and gen_data == True:
+            self.cnn_latent = self.cnn(image_obs)
+            cnn_latent = self.cnn_latent
+        elif self.counter_inference % 5 != 0 and gen_data == True:
+            cnn_latent = self.cnn_latent
+        else:
+            cnn_latent = self.cnn(image_obs)
+
+        # if gen_data == True:
+        self.counter_inference += 1  
+
+        return priv_latent, cnn_latent
+
+    def detach_hidden_states(self):
+        if self.hidden_states is not None:
+            self.hidden_states = self.hidden_states.detach()
 
     def reset(self, dones=None):
         pass
 
-    def forward(self):
-        raise NotImplementedError
-    
     @property
     def action_mean(self):
         return self.distribution.mean
@@ -291,53 +420,148 @@ class ActorCriticRMA(nn.Module):
     @property
     def action_std(self):
         return self.distribution.stddev
-    
+
     @property
     def entropy(self):
         return self.distribution.entropy().sum(dim=-1)
-
-    def update_distribution(self, observations, hist_encoding):
-        mean = self.actor(observations, hist_encoding)
-        self.distribution = Normal(mean, mean*0. + self.std)    # self.std is a tensor with 12 variables, and it is dynamic
-
-    def act(self, observations, hist_encoding=False, **kwargs):
-        self.update_distribution(observations, hist_encoding)
-        return self.distribution.sample()
     
-    def get_actions_log_prob(self, actions):               # actions size is [6144, 12];   self.distribution.log_prob(actions) size is [6144, 12]
-        return self.distribution.log_prob(actions).sum(dim=-1)             # it will sum all the 12 actions log_prob           self.distribution.log_prob(actions).sum(dim=-1) output size is [6144]
 
-    def act_inference(self, observations, hist_encoding=False, eval=False, scandots_latent=None, **kwargs):
-        if not eval:
-            actions_mean = self.actor(observations, hist_encoding, eval, scandots_latent)   # during play_test_go2.py, it is using this line for non-camera scenario
-            return actions_mean
+    def update_distribution(self, observations):
+        mean = self.actor(observations)
+        self.distribution = Normal(mean, mean * 0.0 + self.std)
+
+
+
+    def act(self, obs, image_obs, hist_encoding, gen_data, **kwargs):
+        obs_prop = obs[:, :53] 
+        obs_history = obs[:, -530:]
+        abs_vel = obs[:, 185:188]  # abs_vel is the 186th to 188th elements of obs_batch
+        priv = obs[:, 194:223] # priv is the 195th to 224th elements of obs_batch, which is the mass, friction, motor strength
+        obs_scan = obs[:, 53:185]  # obs_scan is the 54th to 185th elements of obs_batch, which is the scan dot
+
+        obs_prop_yaw_mask = obs_prop.clone()
+        obs_prop_yaw_mask[:, 6:8] = 0.0  # mask the yaw in obs_prop
+
+
+        if self.counter % 5 == 0 and gen_data == True:
+            self.cnn_latent = self.cnn(image_obs)
+            self.obs_prop_yaw_mask = obs_prop_yaw_mask
+            cnn_latent = self.cnn_latent
+            depth_latent = self.combination_mlp(torch.cat((cnn_latent, self.obs_prop_yaw_mask), dim=-1))
+            if self.cnn_hidden_states is None or self.cnn_hidden_states.size(1) != depth_latent.size(0):
+                    self.cnn_hidden_states = torch.zeros(
+                        1, depth_latent.size(0), self.rnn.hidden_size, device=depth_latent.device
+                    )
+            depth_latent, self.cnn_hidden_states = self.rnn(depth_latent[:, None, :], self.cnn_hidden_states)
+            self.cnn_hidden_states = self.cnn_hidden_states.detach()
+            depth_latent = self.output_mlp(depth_latent.squeeze(1))
+            self.depth_latent = depth_latent
+
+            combination_cnn_vel = torch.cat((depth_latent[:, :-2], abs_vel), dim=-1)
+            z_mu, z_logvar = self.head_z_mu(combination_cnn_vel), self.head_z_logvar(combination_cnn_vel)
+            z = self.reparameterise(z_mu, z_logvar)
+            decoded_scan = self.scan_decoder(z)
+            self.z = z
+            self.decoded_scan = decoded_scan
+
+        elif self.counter % 5 != 0 and gen_data == True:
+            depth_latent = self.depth_latent
+
+            combination_cnn_vel = torch.cat((depth_latent[:, :-2], abs_vel), dim=-1)
+            z_mu, z_logvar = self.head_z_mu(combination_cnn_vel), self.head_z_logvar(combination_cnn_vel)
+            z = self.reparameterise(z_mu, z_logvar)
+            decoded_scan = self.scan_decoder(z)
+            self.z = z
+            self.decoded_scan = decoded_scan
+
         else:
-            actions_mean, latent_hist, latent_priv = self.actor(observations, hist_encoding, eval=True)
-            return actions_mean, latent_hist, latent_priv
+            cnn_latent = self.cnn(image_obs)
+            depth_latent = self.combination_mlp(torch.cat((cnn_latent, obs_prop_yaw_mask), dim=-1))
+            if self.cnn_hidden_states is None or self.cnn_hidden_states.size(1) != depth_latent.size(0):
+                    self.cnn_hidden_states = torch.zeros(
+                        1, depth_latent.size(0), self.rnn.hidden_size, device=depth_latent.device
+                    )
+            depth_latent, self.cnn_hidden_states = self.rnn(depth_latent[:, None, :], self.cnn_hidden_states)
+            self.cnn_hidden_states = self.cnn_hidden_states.detach()
+            depth_latent = self.output_mlp(depth_latent.squeeze(1))
 
+            combination_cnn_vel = torch.cat((depth_latent[:, :-2], abs_vel), dim=-1)
+            z_mu, z_logvar = self.head_z_mu(combination_cnn_vel), self.head_z_logvar(combination_cnn_vel)
+            z = self.reparameterise(z_mu, z_logvar)
+            decoded_scan = self.scan_decoder(z)
+
+        if gen_data == True:
+            self.counter += 1  
+
+
+        if hist_encoding:
+            priv_latent = self.infer_hist_latent(obs_history)
+        else:
+            priv_latent = self.infer_priv_latent(priv)  # priv is the mass, friction, motor strength, output size is [B, 20]
+
+        observations = torch.cat((obs_prop, depth_latent[:, :-2], abs_vel, priv_latent), dim=-1)   # dims is 53 + 32 + 20 = 105
+
+
+        self.update_distribution(observations)
+        return self.distribution.sample(), decoded_scan
+
+
+    def get_actions_log_prob(self, actions):
+        return self.distribution.log_prob(actions).sum(dim=-1)
+    
+    
+    @torch.inference_mode()
+    def act_inference(self, obs, image_obs):
+        obs_prop = obs[:, :53] 
+        obs_history = obs[:, -530:]
+        abs_vel = obs[:, 185:188]  # abs_vel is the 186th to 188th elements of obs_batch
+        priv = obs[:, 194:223] # priv is the 195th to 224th elements of obs_batch, which is the mass, friction, motor strength
+        obs_scan = obs[:, 53:185]  # obs_scan is the 54th to 185th elements of obs_batch, which is the scan dot
+
+        obs_prop_yaw_mask = obs_prop.clone()
+        obs_prop_yaw_mask[:, 6:8] = 0.0  # mask the yaw in obs_prop
+
+
+        if self.counter % 5 == 0 :
+            self.cnn_latent = self.cnn(image_obs)
+            self.obs_prop_yaw_mask = obs_prop_yaw_mask
+            cnn_latent = self.cnn_latent
+            depth_latent = self.combination_mlp(torch.cat((cnn_latent, self.obs_prop_yaw_mask), dim=-1))
+            if self.cnn_hidden_states is None or self.cnn_hidden_states.size(1) != depth_latent.size(0):
+                    self.cnn_hidden_states = torch.zeros(
+                        1, depth_latent.size(0), self.rnn.hidden_size, device=depth_latent.device
+                    )
+            depth_latent, self.cnn_hidden_states = self.rnn(depth_latent[:, None, :], self.cnn_hidden_states)
+            self.cnn_hidden_states = self.cnn_hidden_states.detach()
+            depth_latent = self.output_mlp(depth_latent.squeeze(1))
+            self.depth_latent = depth_latent
+
+            combination_cnn_vel = torch.cat((depth_latent[:, :-2], abs_vel), dim=-1)
+            z = self.head_z_mu(combination_cnn_vel)
+
+
+        elif self.counter % 5 != 0:
+
+            depth_latent = self.depth_latent
+
+            combination_cnn_vel = torch.cat((depth_latent[:, :-2], abs_vel), dim=-1)
+            z = self.head_z_mu(combination_cnn_vel)
+            
+
+        self.counter += 1  
+
+        priv_latent = self.infer_hist_latent(obs_history)
+
+        observations = torch.cat((obs_prop, depth_latent[:, :-2], abs_vel, priv_latent), dim=-1)  # dims is 53 + 32 + 20 = 105
+
+        actions_mean = self.actor(observations)
+        return actions_mean
+    
+    
     def evaluate(self, critic_observations, **kwargs):
         value = self.critic(critic_observations)
         return value
-    
+
     def reset_std(self, std, num_actions, device):
         new_std = std * torch.ones(num_actions, device=device)
         self.std.data = new_std.data
-
-def get_activation(act_name):
-    if act_name == "elu":
-        return nn.ELU()
-    elif act_name == "selu":
-        return nn.SELU()
-    elif act_name == "relu":
-        return nn.ReLU()
-    elif act_name == "crelu":
-        return nn.ReLU()
-    elif act_name == "lrelu":
-        return nn.LeakyReLU()
-    elif act_name == "tanh":
-        return nn.Tanh()
-    elif act_name == "sigmoid":
-        return nn.Sigmoid()
-    else:
-        print("invalid activation function!")
-        return None

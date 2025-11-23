@@ -37,6 +37,7 @@ class RolloutStorage:
     class Transition:
         def __init__(self):
             self.observations = None
+            self.prev_obs = None
             self.critic_observations = None
             self.actions = None
             self.rewards = None
@@ -46,6 +47,7 @@ class RolloutStorage:
             self.action_mean = None
             self.action_sigma = None
             self.hidden_states = None
+            self.depth_extras = None   # for depth image
         def clear(self):
             self.__init__()
 
@@ -60,6 +62,8 @@ class RolloutStorage:
         # Core
         self.observations = torch.zeros(num_transitions_per_env, num_envs, *obs_shape, device=self.device)
 
+        # self.prev_obs = torch.zeros(num_transitions_per_env, num_envs, *obs_shape, device=self.device)
+
         if privileged_obs_shape[0] is not None:
             self.privileged_observations = torch.zeros(num_transitions_per_env, num_envs, *privileged_obs_shape, device=self.device)
         else:
@@ -67,6 +71,17 @@ class RolloutStorage:
         self.rewards = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
         self.actions = torch.zeros(num_transitions_per_env, num_envs, *actions_shape, device=self.device)
         self.dones = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device).byte()
+
+
+        # for depth image
+        # self.extras = {
+        #     "depth": torch.zeros(num_transitions_per_env, num_envs, 58, 87, device=self.device),  # if it's an image
+        #     "delta_yaw_ok": torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
+        # }
+
+
+        self.depth_extras = torch.zeros(num_transitions_per_env, num_envs, 2, 36, 28, device=self.device) 
+
 
         # For PPO
         self.actions_log_prob = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
@@ -89,6 +104,7 @@ class RolloutStorage:
         if self.step >= self.num_transitions_per_env:
             raise AssertionError("Rollout buffer overflow")
         self.observations[self.step].copy_(transition.observations)
+        # self.observations[self.step].copy_(transition.prev_obs)
         if self.privileged_observations is not None: self.privileged_observations[self.step].copy_(transition.critic_observations)
         self.actions[self.step].copy_(transition.actions)
         self.rewards[self.step].copy_(transition.rewards.view(-1, 1))
@@ -97,6 +113,13 @@ class RolloutStorage:
         self.actions_log_prob[self.step].copy_(transition.actions_log_prob.view(-1, 1))
         self.mu[self.step].copy_(transition.action_mean)
         self.sigma[self.step].copy_(transition.action_sigma)
+
+        # print("transition.observations shape: ", transition.observations.shape)    # torch.Size([100, 753])
+        # print("transiton.depth_extras shape: ", transition.depth_extras.shape)    # torch.Size([100, 2, 58, 87])
+        # for depth image
+        if transition.depth_extras is not None:
+            self.depth_extras[self.step].copy_(transition.depth_extras)
+
 
         self._save_hidden_states(transition.hidden_states)
         self.step += 1
@@ -147,10 +170,13 @@ class RolloutStorage:
 
     def mini_batch_generator(self, num_mini_batches, num_epochs=8):
         batch_size = self.num_envs * self.num_transitions_per_env         # self.num_envs is 6144      # self.num_transitions_per_env is 24
-        mini_batch_size = batch_size // num_mini_batches
-        indices = torch.randperm(num_mini_batches*mini_batch_size, requires_grad=False, device=self.device)
+        mini_batch_size = batch_size // num_mini_batches                    # mini_batch_size is 36864   # num_mini_batches is 4
+
+        indices = torch.randperm(num_mini_batches*mini_batch_size, requires_grad=False, device=self.device)   # generates a shuffled list of indices ranging from 0 to 147455
+
 
         observations = self.observations.flatten(0, 1)
+        # prev_observations = self.prev_obs.flatten(0, 1)
 
         # # shift the observations by one step to the left to get the next observations
         # next_disc_observations = torch.cat((self.disc_observations[1:], self.disc_observations[-1].unsqueeze(0)), dim=0)
@@ -171,14 +197,22 @@ class RolloutStorage:
         old_mu = self.mu.flatten(0, 1)
         old_sigma = self.sigma.flatten(0, 1)
 
-        for epoch in range(num_epochs):
-            for i in range(num_mini_batches):
+        # for depth image
+        depth_extras = self.depth_extras.flatten(0, 1)
+
+    
+
+        for epoch in range(num_epochs):                             # num_epochs is    5
+            for i in range(num_mini_batches):                       # num_mini_batches is   4
 
                 start = i*mini_batch_size
                 end = (i+1)*mini_batch_size
                 batch_idx = indices[start:end]
 
                 obs_batch = observations[batch_idx]
+                
+                # prev_obs_batch = prev_observations[batch_idx]    # new added
+
                 critic_observations_batch = critic_observations[batch_idx]
                 actions_batch = actions[batch_idx]
                 target_values_batch = values[batch_idx]                 # this target actually is the value function loss of old_values_batch in ppo.py 
@@ -188,9 +222,13 @@ class RolloutStorage:
                 old_mu_batch = old_mu[batch_idx]
                 old_sigma_batch = old_sigma[batch_idx]
 
+                # for depth image
+                depth_extras_batch = depth_extras[batch_idx]
+
+            
                 
                 yield obs_batch, critic_observations_batch, actions_batch, target_values_batch, advantages_batch, returns_batch, \
-                       old_actions_log_prob_batch, old_mu_batch, old_sigma_batch, (None, None), None
+                       old_actions_log_prob_batch, old_mu_batch, old_sigma_batch, (None, None), None , depth_extras_batch
 
     # for RNNs only
     def reccurent_mini_batch_generator(self, num_mini_batches, num_epochs=8):

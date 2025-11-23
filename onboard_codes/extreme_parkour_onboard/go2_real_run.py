@@ -12,7 +12,8 @@ from copy import deepcopy
 import numpy as np
 import torch
 from torch import nn
-from rsl_rl.modules import RecurrentDepthBackbone, DepthOnlyFCBackbone58x87
+from rsl_rl.modules import ActorCritic_DWAQ
+from rsl_rl.algorithms.ppo import Estimator
 import torch.nn.functional as F
 from torch.autograd import Variable
 
