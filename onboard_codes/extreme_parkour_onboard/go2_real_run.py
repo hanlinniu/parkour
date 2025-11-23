@@ -12,8 +12,8 @@ from copy import deepcopy
 import numpy as np
 import torch
 from torch import nn
-from rsl_rl.modules import ActorCritic_DWAQ
-from rsl_rl.algorithms.ppo import Estimator
+from rsl_rl.modules import ActorCritic_DWAQ, BEV_RecurrentDepthBackbone
+# from rsl_rl.algorithms.ppo import Estimator
 import torch.nn.functional as F
 from torch.autograd import Variable
 
@@ -91,12 +91,12 @@ class Go2Node(UnitreeRos2Real):
         for _ in range(2):
             start_time = time.monotonic()
 
-            proprio = self.get_proprio()
+            proprio = self._get_proprio()
             get_pro_time = time.monotonic()
             proprio_history = self._get_history_proprio() 
             get_hist_pro_time = time.monotonic()
 
-            obs = self.get_obs()
+            obs = self._get_obs()
 
             if self.global_counter % self.visual_update_interval == 0:
                 depth_image = self._get_depth_obs()
@@ -273,24 +273,16 @@ def main(args):
 
     save_folder = os.path.expanduser("~/parkour/onboard_codes/extreme_parkour_onboard/traced")
 
-    base_model = torch.jit.load(os.path.join(save_folder, "1121-dream-BEV-6144envs-distill-teacher-heightcutoff0.05-zreparameterise-originalactorinput-deltadepthlatent-estimatornoyaw-delta-vision-delta-scandot-rnn-combmlp0yawmask-raico-8000-single_inference.pt"), map_location=device)
+    base_model = torch.jit.load(os.path.join(save_folder, "1121-dream-192envs-student-0.75mhigh-scandotteachraycasting5887depthimage-NewDepthOnlyFCBackbone-alienware-raico2_depth_actor.pt"), map_location=device)
     base_model.eval()
 
-    # estimator = base_model.estimator
-    # actor_critic = base_model.actor_critic
 
-
-    
-    # estimator = base_model.estimator.estimator
-    # hist_encoder = base_model.actor.history_encoder
-    # actor = base_model.actor.actor_backbone
-
-    # vision_model = torch.load(os.path.join(save_folder, "0525-distill-policy-gaussian-noise-raico-9500-vision_weight.pt"), map_location=device)
+    vision_model = torch.load(os.path.join(save_folder, "1121-dream-192envs-student-0.75mhigh-scandotteachraycasting5887depthimage-NewDepthOnlyFCBackbone-alienware-raico2_depth_encoder.pt"), map_location=device)
     # depth_backbone = DepthOnlyFCBackbone58x87(None, 32, 512)
-    # depth_encoder = RecurrentDepthBackbone(depth_backbone, None).to(device)
-    # depth_encoder.load_state_dict(vision_model['depth_encoder_state_dict'])
+    depth_encoder = BEV_RecurrentDepthBackbone(53, 12, 10).to(device)
+    depth_encoder.load_state_dict(vision_model['depth_encoder_state_dict'])
     # depth_encoder.to(device)
-    # depth_encoder.eval()
+    depth_encoder.eval()
 
 
     zero_act_model = ZeroActModel()
@@ -300,7 +292,14 @@ def main(args):
 
     def turn_obs(obs, depth_image):
 
-        actions = base_model(obs, depth_image)
+        depth_latent, abs_vel, priv_latent, yaw  = vision_model(depth_image, obs)
+        yaw = 1.5*yaw
+        obs_student = obs.clone()
+        obs_student [:, 6:8] = yaw
+
+        actor_input = torch.cat((obs_student[:, :53], depth_latent, abs_vel, priv_latent), dim=-1)
+
+        actions = base_model(actor_input)
 
         return actions
 

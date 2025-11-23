@@ -263,46 +263,21 @@ class ActorCritic_DWAQ(nn.Module):
             nn.ELU()
         )   # for processing the mass, friction, motor strength
 
+        self.scan_encoder = nn.Sequential(
+            nn.Linear(132, 128),
+            self.activation,
+            nn.Linear(128, 64),
+            self.activation,
+            nn.Linear(64, 32),
+            nn.Tanh()
+        )
+
+
+
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        self.cnn = depth_CNN_GRU(output_dim=32, output_activation="tanh").to(self.device)  # num_frames = 2
-
-        self.scan_decoder = nn.Sequential(
-            nn.Linear(32, 64),
-            self.activation,
-            nn.Linear(64, 256),
-            self.activation,
-            nn.Linear(256, 132)  # num_scan = 132
-        )
-
-        self.head_z_mu = nn.Linear(32 + 3, 32)  # z_mu 32 + 3
-        self.head_z_logvar = nn.Linear(32 + 3, 32)  # z_logvar 32 + 3
-
-
-        self.combination_mlp = nn.Sequential(
-            nn.Linear(32 + 53, 128),  # 32 (cnn latent) + 53 (proprioception) = 85
-            nn.ELU(),
-            nn.Linear(128, 34)
-        )
-
-        self.yaw_decoder = nn.Sequential(
-            nn.Linear(34, 16),
-            nn.ELU(),
-            nn.Linear(16, 2),
-            nn.Tanh()
-        )
-
-        self.rnn = nn.GRU(
-            input_size=34,
-            hidden_size=512,
-            batch_first=True
-        )
-
-        self.output_mlp = nn.Sequential(
-            nn.Linear(512, 32 + 2),
-            nn.Tanh()
-        )
+        
 
 
         self.actor = nn.Sequential(
@@ -434,64 +409,14 @@ class ActorCritic_DWAQ(nn.Module):
 
     def act(self, obs, image_obs, hist_encoding, gen_data, **kwargs):
         obs_prop = obs[:, :53] 
+        obs_scan = obs[:, 53:185]  # obs_scan is the 54th to 185th elements of obs_batch, which is the scan dot
         obs_history = obs[:, -530:]
         abs_vel = obs[:, 185:188]  # abs_vel is the 186th to 188th elements of obs_batch
         priv = obs[:, 194:223] # priv is the 195th to 224th elements of obs_batch, which is the mass, friction, motor strength
         obs_scan = obs[:, 53:185]  # obs_scan is the 54th to 185th elements of obs_batch, which is the scan dot
 
-        obs_prop_yaw_mask = obs_prop.clone()
-        obs_prop_yaw_mask[:, 6:8] = 0.0  # mask the yaw in obs_prop
 
-
-        if self.counter % 5 == 0 and gen_data == True:
-            self.cnn_latent = self.cnn(image_obs)
-            self.obs_prop_yaw_mask = obs_prop_yaw_mask
-            cnn_latent = self.cnn_latent
-            depth_latent = self.combination_mlp(torch.cat((cnn_latent, self.obs_prop_yaw_mask), dim=-1))
-            if self.cnn_hidden_states is None or self.cnn_hidden_states.size(1) != depth_latent.size(0):
-                    self.cnn_hidden_states = torch.zeros(
-                        1, depth_latent.size(0), self.rnn.hidden_size, device=depth_latent.device
-                    )
-            depth_latent, self.cnn_hidden_states = self.rnn(depth_latent[:, None, :], self.cnn_hidden_states)
-            self.cnn_hidden_states = self.cnn_hidden_states.detach()
-            depth_latent = self.output_mlp(depth_latent.squeeze(1))
-            self.depth_latent = depth_latent
-
-            combination_cnn_vel = torch.cat((depth_latent[:, :-2], abs_vel), dim=-1)
-            z_mu, z_logvar = self.head_z_mu(combination_cnn_vel), self.head_z_logvar(combination_cnn_vel)
-            z = self.reparameterise(z_mu, z_logvar)
-            decoded_scan = self.scan_decoder(z)
-            self.z = z
-            self.decoded_scan = decoded_scan
-
-        elif self.counter % 5 != 0 and gen_data == True:
-            depth_latent = self.depth_latent
-
-            combination_cnn_vel = torch.cat((depth_latent[:, :-2], abs_vel), dim=-1)
-            z_mu, z_logvar = self.head_z_mu(combination_cnn_vel), self.head_z_logvar(combination_cnn_vel)
-            z = self.reparameterise(z_mu, z_logvar)
-            decoded_scan = self.scan_decoder(z)
-            self.z = z
-            self.decoded_scan = decoded_scan
-
-        else:
-            cnn_latent = self.cnn(image_obs)
-            depth_latent = self.combination_mlp(torch.cat((cnn_latent, obs_prop_yaw_mask), dim=-1))
-            if self.cnn_hidden_states is None or self.cnn_hidden_states.size(1) != depth_latent.size(0):
-                    self.cnn_hidden_states = torch.zeros(
-                        1, depth_latent.size(0), self.rnn.hidden_size, device=depth_latent.device
-                    )
-            depth_latent, self.cnn_hidden_states = self.rnn(depth_latent[:, None, :], self.cnn_hidden_states)
-            self.cnn_hidden_states = self.cnn_hidden_states.detach()
-            depth_latent = self.output_mlp(depth_latent.squeeze(1))
-
-            combination_cnn_vel = torch.cat((depth_latent[:, :-2], abs_vel), dim=-1)
-            z_mu, z_logvar = self.head_z_mu(combination_cnn_vel), self.head_z_logvar(combination_cnn_vel)
-            z = self.reparameterise(z_mu, z_logvar)
-            decoded_scan = self.scan_decoder(z)
-
-        if gen_data == True:
-            self.counter += 1  
+        scan_latent = self.scan_encoder(obs_scan)
 
 
         if hist_encoding:
@@ -499,11 +424,11 @@ class ActorCritic_DWAQ(nn.Module):
         else:
             priv_latent = self.infer_priv_latent(priv)  # priv is the mass, friction, motor strength, output size is [B, 20]
 
-        observations = torch.cat((obs_prop, depth_latent[:, :-2], abs_vel, priv_latent), dim=-1)   # dims is 53 + 32 + 20 = 105
+        observations = torch.cat((obs_prop, scan_latent, abs_vel, priv_latent), dim=-1)   # dims is 53 + 32 + 20 = 105
 
 
         self.update_distribution(observations)
-        return self.distribution.sample(), decoded_scan
+        return self.distribution.sample()
 
 
     def get_actions_log_prob(self, actions):
@@ -513,48 +438,21 @@ class ActorCritic_DWAQ(nn.Module):
     @torch.inference_mode()
     def act_inference(self, obs, image_obs):
         obs_prop = obs[:, :53] 
+        obs_scan = obs[:, 53:185]  # obs_scan is the 54th to 185th elements of obs_batch, which is the scan dot
         obs_history = obs[:, -530:]
         abs_vel = obs[:, 185:188]  # abs_vel is the 186th to 188th elements of obs_batch
         priv = obs[:, 194:223] # priv is the 195th to 224th elements of obs_batch, which is the mass, friction, motor strength
         obs_scan = obs[:, 53:185]  # obs_scan is the 54th to 185th elements of obs_batch, which is the scan dot
 
-        obs_prop_yaw_mask = obs_prop.clone()
-        obs_prop_yaw_mask[:, 6:8] = 0.0  # mask the yaw in obs_prop
 
-
-        if self.counter % 5 == 0 :
-            self.cnn_latent = self.cnn(image_obs)
-            self.obs_prop_yaw_mask = obs_prop_yaw_mask
-            cnn_latent = self.cnn_latent
-            depth_latent = self.combination_mlp(torch.cat((cnn_latent, self.obs_prop_yaw_mask), dim=-1))
-            if self.cnn_hidden_states is None or self.cnn_hidden_states.size(1) != depth_latent.size(0):
-                    self.cnn_hidden_states = torch.zeros(
-                        1, depth_latent.size(0), self.rnn.hidden_size, device=depth_latent.device
-                    )
-            depth_latent, self.cnn_hidden_states = self.rnn(depth_latent[:, None, :], self.cnn_hidden_states)
-            self.cnn_hidden_states = self.cnn_hidden_states.detach()
-            depth_latent = self.output_mlp(depth_latent.squeeze(1))
-            self.depth_latent = depth_latent
-
-            combination_cnn_vel = torch.cat((depth_latent[:, :-2], abs_vel), dim=-1)
-            z = self.head_z_mu(combination_cnn_vel)
-
-
-        elif self.counter % 5 != 0:
-
-            depth_latent = self.depth_latent
-
-            combination_cnn_vel = torch.cat((depth_latent[:, :-2], abs_vel), dim=-1)
-            z = self.head_z_mu(combination_cnn_vel)
-            
-
-        self.counter += 1  
+        scan_latent = self.scan_encoder(obs_scan)
 
         priv_latent = self.infer_hist_latent(obs_history)
+        
+        observations = torch.cat((obs_prop, scan_latent, abs_vel, priv_latent), dim=-1)   # dims is 53 + 32 + 3 + 20 = 105
 
-        observations = torch.cat((obs_prop, depth_latent[:, :-2], abs_vel, priv_latent), dim=-1)  # dims is 53 + 32 + 20 = 105
 
-        actions_mean = self.actor(observations)
+        actions_mean = self.actor(observations)         
         return actions_mean
     
     

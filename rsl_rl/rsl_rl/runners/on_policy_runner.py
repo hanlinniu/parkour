@@ -277,12 +277,12 @@ class OnPolicyRunner:
                     # depth_latent_and_yaw = self.alg_student.actor_critic.combination_mlp(torch.cat((cnn_latent, obs_prop_depth), dim=-1))
 
                     # depth_latent_and_yaw = self.alg_student.actor_critic.get_depth_latent_and_yaw(obs_prop_depth, infos["depth"].clone())
-                    z, priv_latent, yaw, depth_latent_student = self.alg.depth_encoder(infos["depth"].clone(), obs_prop_depth)  # clone is crucial to avoid in-place operation
+                    depth_latent, abs_vel, priv_latent, yaw = self.alg.depth_encoder(infos["depth"].clone(), obs_prop_depth)  # clone is crucial to avoid in-place operation
                     yaw = 1.5*yaw
                     
                     yaw_buffer_student.append(yaw)
                     yaw_buffer_teacher.append(obs[:, 6:8])
-                    depth_latent_student_buffer.append(depth_latent_student)
+                    depth_latent_student_buffer.append(depth_latent)
 
                 with torch.no_grad():
                     actions_teacher, depth_latent_teacher = self.alg.actor_critic.act_inference(obs, infos["depth"].clone())
@@ -295,7 +295,7 @@ class OnPolicyRunner:
                 obs_student[infos["delta_yaw_ok"], 6:8] = yaw.detach()[infos["delta_yaw_ok"]]
                 delta_yaw_ok_buffer.append(torch.nonzero(infos["delta_yaw_ok"]).size(0) / infos["delta_yaw_ok"].numel())
 
-                actor_input = torch.cat((obs_student[:, :53], z,  priv_latent), dim=-1)
+                actor_input = torch.cat((obs_student[:, :53], depth_latent, abs_vel, priv_latent), dim=-1)
                 actions_student = self.alg.depth_actor(actor_input)
                 actions_student_buffer.append(actions_student)
 
@@ -575,7 +575,7 @@ class OnPolicyRunner:
                 # self.alg.depth_encoder.cnn = deepcopy(self.alg.actor_critic.cnn)
                 self.alg.depth_encoder.history_encoder = deepcopy(self.alg.actor_critic.history_encoder)
                 # self.alg.depth_encoder.combination_mlp = deepcopy(self.alg.actor_critic.combination_mlp)
-                self.alg.depth_encoder.head_z_mu = deepcopy(self.alg.actor_critic.head_z_mu)
+                # self.alg.depth_encoder.head_z_mu = deepcopy(self.alg.actor_critic.head_z_mu)
                 # self.alg.depth_encoder.output_mlp = deepcopy(self.alg.actor_critic.output_mlp)
                 self.alg.depth_encoder.estimator = deepcopy(self.alg.estimator)
                 # self.alg.depth_encoder.rnn = deepcopy(self.alg.actor_critic.rnn)

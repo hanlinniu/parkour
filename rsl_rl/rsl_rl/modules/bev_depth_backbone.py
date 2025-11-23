@@ -18,7 +18,9 @@ class BEV_RecurrentDepthBackbone(nn.Module):
         print("self.device in bev_depth_backbone.py is ", self.device)
 
 # yaw network######################################################################################################
-        self.cnn_yaw = depth_CNN(output_dim=32, output_activation="tanh").to(self.device)  # num_frames = 2
+        # self.cnn_yaw = depth_CNN(output_dim=32, output_activation="tanh").to(self.device)  # num_frames = 2
+        self.cnn_yaw = DepthOnlyFCBackbone58x87(53, 32, 512).to(self.device)
+
         self.combination_mlp_yaw = nn.Sequential(
                                     nn.Linear(32 + 53, 128),
                                     nn.ELU(),
@@ -32,24 +34,24 @@ class BEV_RecurrentDepthBackbone(nn.Module):
         self.hiddent_states_yaw = None
 ##################################################################################################################        
 
-        self.cnn = depth_CNN_GRU(output_dim=32, output_activation="tanh").to(self.device)  # num_frames = 2
+        # self.cnn = depth_CNN_GRU(output_dim=32, output_activation="tanh").to(self.device)  # num_frames = 2
         self.history_encoder = StateHistoryEncoder(activation, input_size=53, tsteps=10, output_size=20)
 
-        self.combination_mlp = nn.Sequential(
-            nn.Linear(32 + 53, 128),  # 32 (cnn latent) + 53 (proprioception) = 85
-            nn.ELU(),
-            nn.Linear(128, 34)
-        )
+        # self.combination_mlp = nn.Sequential(
+        #     nn.Linear(32 + 53, 128),  # 32 (cnn latent) + 53 (proprioception) = 85
+        #     nn.ELU(),
+        #     nn.Linear(128, 34)
+        # )
 
-        self.rnn = nn.GRU(input_size=34, hidden_size=512, batch_first=True)
-        self.cnn_hidden_states = None
-        self.output_mlp = nn.Sequential(
-            nn.Linear(512, 32 + 2),
-            nn.Tanh()
-        )
+        # self.rnn = nn.GRU(input_size=34, hidden_size=512, batch_first=True)
+        # self.cnn_hidden_states = None
+        # self.output_mlp = nn.Sequential(
+        #     nn.Linear(512, 32 + 2),
+        #     nn.Tanh()
+        # )
 
 
-        self.head_z_mu = nn.Linear(32 + 3, 32)  # z_mu 32 + 3
+        # self.head_z_mu = nn.Linear(32 + 3, 32)  # z_mu 32 + 3
         self.hidden_states = None
         self.counter = 0
 
@@ -65,6 +67,8 @@ class BEV_RecurrentDepthBackbone(nn.Module):
         obs_prop_yaw_mask = obs_prop.clone()
         obs_prop_yaw_mask[:, 6:8] = 0.0
 
+
+        depth_image = depth_image[:, -2, :, :]  
         # abs_vel = self.estimator(obs_prop_yaw_mask)
 
         ########################################################################################################
@@ -89,17 +93,14 @@ class BEV_RecurrentDepthBackbone(nn.Module):
         obs_prop_yaw[:, 6:8] = yaw*1.5
         abs_vel = self.estimator(obs_prop_yaw)
 
-        combination_cnn_vel = torch.cat((z, abs_vel), dim=-1)
-        z_latent = self.head_z_mu(combination_cnn_vel)
+        depth_latent = z
 
         priv_latent = self.history_encoder(obs_history.view(-1, 10, 53))
-
-
 
         self.counter += 1
 
 
-        return z_latent, priv_latent, yaw, z
+        return depth_latent, abs_vel, priv_latent, yaw
 
     def detach_hidden_states(self):
         # self.hidden_states = self.hidden_states.detach().clone()
@@ -389,3 +390,38 @@ class StateHistoryEncoder(nn.Module):
         output = self.conv_layers(projection.reshape([nd, T, -1]).permute((0, 2, 1)))  # projection.reshape([nd, T, -1]) size is [3684, 10, 30];  projection.reshape([nd, T, -1]).permute(0,2,1) size is [3684, 30, 10];   output size is [3684, 30]
         output = self.linear_output(output)   
         return output
+    
+
+
+      
+class DepthOnlyFCBackbone58x87(nn.Module):
+    def __init__(self, prop_dim, scandots_output_dim, hidden_state_dim, output_activation=None, num_frames=1):
+        super().__init__()
+
+        self.num_frames = num_frames
+        activation = nn.ELU()
+        self.image_compression = nn.Sequential(
+            # [1, 58, 87]
+            nn.Conv2d(in_channels=self.num_frames, out_channels=32, kernel_size=5),
+            # [32, 54, 83]
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            # [32, 27, 41]
+            activation,
+            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3),
+            activation,
+            nn.Flatten(),
+            # [32, 25, 39]
+            nn.Linear(64 * 25 * 39, 128),
+            activation,
+            nn.Linear(128, scandots_output_dim)
+        )
+
+        if output_activation == "tanh":
+            self.output_activation = nn.Tanh()
+        else:
+            self.output_activation = activation
+
+    def forward(self, images: torch.Tensor):
+        images_compressed = self.image_compression(images.unsqueeze(1))    # images size is [192, 58, 87].   images.unsqueeze(1) size is [192, 1, 58, 87].  
+        latent = self.output_activation(images_compressed)                 # images_compressed size is [192, 32].   latent size is [192, 32]  
+        return latent

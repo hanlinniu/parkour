@@ -209,7 +209,7 @@ class PPO:
         obs_est[:, 53+132:53+132+3] = priv_states_estimated
 
 
-        actions, _ = self.actor_critic.act(obs_est, info["depth"], hist_encoding, gen_data=gen_data)
+        actions = self.actor_critic.act(obs_est, info["depth"], hist_encoding, gen_data=gen_data)
         self.transition.actions = actions.detach()
         
         self.transition.values = self.actor_critic.evaluate(critic_obs).detach()   # [num_envs, 1]
@@ -299,14 +299,14 @@ class PPO:
                 obs_est_batch = obs_batch.detach().clone()
                 obs_est_batch[:, 53+132:53+132+3] = priv_est_for_ppo
 
-                _, decoded_scan = self.actor_critic.act(obs_est_batch, image_batch, hist_encoding=False, masks=masks_batch, hidden_states=hid_states_batch[0], gen_data = False) # match distribution dimension. It is using def act() function in Line 302 of actor_critic.py
+                _ = self.actor_critic.act(obs_est_batch, image_batch, hist_encoding=False, masks=masks_batch, hidden_states=hid_states_batch[0], gen_data = False) # match distribution dimension. It is using def act() function in Line 302 of actor_critic.py
                 
                 # added scan reconstruction loss
                 obs_scan_target = obs_batch[:, 53:185].detach()
                 # obs_scan_target_loss = nn.MSELoss()(decoded_scan, obs_scan_target)
                 # autoenc_loss = (obs_scan_target_loss) / self.num_mini_batches
-                obs_scan_target_loss = F.mse_loss(decoded_scan, obs_scan_target, reduction='mean')
-                autoenc_loss = obs_scan_target_loss / self.num_mini_batches
+                # obs_scan_target_loss = F.mse_loss(decoded_scan, obs_scan_target, reduction='mean')
+                # autoenc_loss = obs_scan_target_loss / self.num_mini_batches
                 
                 
                 actions_log_prob_batch = self.actor_critic.get_actions_log_prob(actions_batch)
@@ -366,7 +366,6 @@ class PPO:
                 loss = surrogate_loss + \
                        self.value_loss_coef * value_loss - \
                        self.entropy_coef * entropy_batch.mean() + \
-                       autoenc_loss + \
                        priv_reg_coef * priv_reg_loss
 
 
@@ -386,11 +385,11 @@ class PPO:
 
 
 
-                mean_autoenc_loss += autoenc_loss.item()
+                mean_autoenc_loss += 0
                 # mean_vel_target_loss += vel_target_loss.item()
                 # # mean_hf_target_loss += hf_target_loss.item()
                 # mean_obs_prop_target_loss += obs_prop_target_loss.item()
-                mean_obs_scan_target_loss += obs_scan_target_loss.item()
+                mean_obs_scan_target_loss += 0
                 # mean_priv_reg_loss += priv_reg_loss.item()
 
 
@@ -471,7 +470,7 @@ class PPO:
         yaw_loss = (yaw_teacher_batch.detach() - yaw_student_batch).norm(p=2, dim=1).mean()
         depth_latent_loss = (depth_latent_teacher_batch.detach() - depth_latent_student_batch).norm(p=2, dim=1).mean()
 
-        loss = depth_actor_loss + yaw_loss + depth_latent_loss
+        loss = depth_actor_loss + yaw_loss
 
         self.depth_actor_optimizer.zero_grad()
         loss.backward()

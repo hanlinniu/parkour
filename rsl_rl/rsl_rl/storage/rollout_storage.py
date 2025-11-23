@@ -80,7 +80,7 @@ class RolloutStorage:
         # }
 
 
-        self.depth_extras = torch.zeros(num_transitions_per_env, num_envs, 2, 36, 28, device=self.device) 
+        self.depth_extras = torch.zeros(num_transitions_per_env, num_envs, 2, 58, 87, device=self.device) 
 
 
         # For PPO
