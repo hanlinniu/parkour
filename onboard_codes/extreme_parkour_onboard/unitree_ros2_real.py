@@ -542,7 +542,7 @@ class UnitreeRos2Real(Node):
         return self.proprio_history_buf
     
 
-    def get_proprio(self):
+    def _get_proprio(self):
         """ Observation segment is defined as a list of lists/ints defining the tensor shape with
         corresponding order.
         """
@@ -603,6 +603,18 @@ class UnitreeRos2Real(Node):
         self.episode_length_buf += 1
 
         return proprio
+    
+    def _get_obs(self):
+        proprio = self._get_proprio()     #[1, 53]
+        scandots = torch.zeros(1, 132, device=self.model_device, dtype=torch.float32)     #[1, 132]
+        priv_explict = torch.zeros(1, 9, device=self.model_device, dtype=torch.float32)   #[1, 9]
+        priv_latent = torch.zeros(1, 29, device=self.model_device, dtype=torch.float32)   #[1, 29]
+        history_proprio = self._get_history_proprio()   #[1, 10, 53]
+
+        obs = torch.cat([proprio, scandots, priv_explict, priv_latent, history_proprio], dim=-1)  #[1, 53+132+9+29=223]
+        return obs
+
+
 
 
 
