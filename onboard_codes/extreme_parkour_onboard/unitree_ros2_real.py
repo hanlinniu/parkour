@@ -135,6 +135,7 @@ class UnitreeRos2Real(Node):
             low_cmd_topic= "/lowcmd",
             joy_stick_topic= "/wirelesscontroller",
             forward_depth_topic= "/camera/forward_depth", # if None and still need access, set to str "pyrealsense"
+            forward_bev_depth_topic = "/camera/forward_bev_depth",
             depth_data_topic= "/forward_depth_image",
             cfg= dict(),
             lin_vel_deadband= 0.1,
@@ -160,6 +161,7 @@ class UnitreeRos2Real(Node):
         self.low_cmd_topic = low_cmd_topic if not dryrun else low_cmd_topic + "_dryrun_" + str(np.random.randint(0, 65535))
         self.joy_stick_topic = joy_stick_topic
         self.forward_depth_topic = forward_depth_topic
+        self.forward_bev_depth_topic = forward_bev_depth_topic
         self.depth_data_topic = depth_data_topic
         self.cfg = cfg
         self.lin_vel_deadband = lin_vel_deadband
@@ -317,6 +319,13 @@ class UnitreeRos2Real(Node):
             )
 
 
+        if self.forward_bev_depth_topic is not None:
+            self.forward_bev_camera_sub = self.create_subscription(
+                Image,
+                self.forward_bev_depth_topic,
+                self._forward_bev_depth_callback,
+                1
+            )
         # self.depth_input_sub = self.create_subscription(
         #     Float32MultiArray,
         #     self.depth_data_topic,
@@ -469,6 +478,13 @@ class UnitreeRos2Real(Node):
         # self.forward_depth_buffer = torch.tensor(normized_depth_image, dtype=torch.float32, device=self.model_device).unsqueeze(0)
         self.forward_depth_buffer = torch.from_numpy(normized_depth_image).float().unsqueeze(0).to(self.model_device)
 
+    def _forward_bev_depth_callback(self, msg):
+        """ store and handle depth camera data """
+        normized_depth_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='32FC1')
+        # self.forward_depth_buffer = torch.tensor(normized_depth_image, dtype=torch.float32, device=self.model_device).unsqueeze(0)
+        self.forward_bev_depth_buffer = torch.from_numpy(normized_depth_image).float().unsqueeze(0).to(self.model_device)
+
+
 
     def _depth_data_callback(self, msg):
         self.depth_data = torch.tensor(msg.data, dtype=torch.float32).reshape(1, 58, 87).to(self.model_device)
@@ -533,7 +549,12 @@ class UnitreeRos2Real(Node):
 
     def _get_depth_obs(self):
         return self.forward_depth_buffer
+
+
+    def _get_bev_depth_obs(self):
+        return self.forward_bev_depth_buffer
     
+
     def _get_depth_image(self):
         return self.depth_data
 

@@ -68,13 +68,13 @@ class Go2Node(UnitreeRos2Real):
         self.global_counter = 0
         self.visual_update_interval = 5
 
-        
-    def register_models(self, stand_model, turn_obs, depth_encode, policy):
+        self.depth_buffer_prev = None
+        self.depth_buffer_curr = None
+
+    def register_models(self, stand_model, base_model_act):
         self.stand_model = stand_model
-        self.turn_obs = turn_obs
-        self.depth_encode = depth_encode
-        self.policy = policy
-        
+        self.base_model_act = base_model_act
+
         self.use_stand_policy = False # Start with standing model
         self.use_parkour_policy = False
         self.use_sport_mode = True
@@ -87,8 +87,26 @@ class Go2Node(UnitreeRos2Real):
             self.main_loop,
         )
 
+
+    def _update_depth_buffer(self, new_depth):
+        # new_depth: [1, H, W] (torch)
+        if self.depth_buffer_curr is None:
+            # First frame → duplicate
+            self.depth_buffer_curr = new_depth
+            self.depth_buffer_prev = new_depth
+        else:
+            self.depth_buffer_prev = self.depth_buffer_curr
+            self.depth_buffer_curr = new_depth
+
+        # Return stack [1,2,H,W]
+        depth_stack = torch.cat(
+            [self.depth_buffer_prev, self.depth_buffer_curr], dim=1
+        )
+        return depth_stack
+
+
     def warm_up(self):
-        for _ in range(2):
+        for _ in range(4):
             start_time = time.monotonic()
 
             proprio = self.get_proprio()
@@ -96,31 +114,34 @@ class Go2Node(UnitreeRos2Real):
             proprio_history = self._get_history_proprio() 
             get_hist_pro_time = time.monotonic()
 
-            obs = self.get_obs()
+            obs = self._get_obs()
 
             if self.global_counter % self.visual_update_interval == 0:
-                depth_image = self._get_depth_obs()
-                # depth_image = self._get_depth_image()
-                self.depth_latent_yaw = self.depth_encode(depth_image, proprio)
+                new_depth = self._get_bev_depth_obs()        # [1, H, W]
+                depth_stack = self._update_depth_buffer(new_depth)   # [1, 2, H, W]
+            else:
+                depth_stack = torch.cat(
+                    [self.depth_buffer_prev, self.depth_buffer_curr], dim=1
+                )
 
             get_obs_time = time.monotonic()
+            
+            action = self.base_model_act(obs, depth_stack)
+            
 
-            obs = self.turn_obs(proprio, self.depth_latent_yaw, proprio_history, self.n_proprio, self.n_depth_latent, self.n_hist_len)
-
-            turn_obs_time = time.monotonic()
-
-            action = self.policy(obs)
+            # action = self.policy(obs)
             policy_time = time.monotonic()
 
             publish_time = time.monotonic()
-            print("warm up: ",
-                "get proprio time: {:.5f}".format(get_pro_time - start_time),
-                "get hist pro time: {:.5f}".format(get_hist_pro_time - get_pro_time),
-                "get_depth time: {:.5f}".format(get_obs_time - get_hist_pro_time),
+
+            print(
+                "warm up: ",
+                # "get proprio time: {:.5f}".format(get_pro_time - start_time),
+                # "get hist pro time: {:.5f}".format(get_hist_pro_time - get_pro_time),
+                # "get_depth time: {:.5f}".format(get_obs_time - get_hist_pro_time),
                 "get obs time: {:.5f}".format(get_obs_time - start_time),
-                "turn_obs_time: {:.5f}".format(turn_obs_time - get_obs_time),
-                "policy_time: {:.5f}".format(policy_time - turn_obs_time),
-                "publish_time: {:.5f}".format(publish_time - policy_time),
+                "policy_time: {:.5f}".format(policy_time - start_time),
+                # "publish_time: {:.5f}".format(publish_time - policy_time),
                 "total time: {:.5f}".format(publish_time - start_time)
             )
         
@@ -170,7 +191,7 @@ class Go2Node(UnitreeRos2Real):
             self.loop_counter = 0
 
             self.reset_obs_buffers()
-            self.last_depth_image = self._get_depth_obs()
+            self.last_depth_image = self._get_bev_depth_obs()
 
         if self.use_parkour_policy:
             
@@ -194,14 +215,16 @@ class Go2Node(UnitreeRos2Real):
             # print('history proprioception: ', proprio_history)
 
             if self.global_counter % self.visual_update_interval == 0:
-                depth_image = self._get_depth_obs()
-                self.last_depth_image = depth_image
+                new_depth = self._get_bev_depth_obs()        # [1, H, W]
+                depth_stack = self._update_depth_buffer(new_depth)   # [1, 2, H, W]
             else:
-                depth_image = self.last_depth_image
+                depth_stack = torch.cat(
+                    [self.depth_buffer_prev, self.depth_buffer_curr], dim=1
+                )
 
             get_obs_time = time.monotonic()
 
-            action = self.turn_obs(obs, self.last_depth_image)
+            action = self.base_model_act(obs, depth_stack)
             policy_time = time.monotonic()
             # print('action before clip and normalize: ', action)
 
@@ -217,7 +240,6 @@ class Go2Node(UnitreeRos2Real):
                 # "get hist pro time: {:.5f}".format(get_hist_pro_time - get_pro_time),
                 # "get_depth time: {:.5f}".format(get_obs_time - get_hist_pro_time),
                 "get obs time: {:.5f}".format(get_obs_time - start_time),
-                # "turn_obs_time: {:.5f}".format(turn_obs_time - get_obs_time),
                 "policy_time: {:.5f}".format(policy_time - start_time),
                 # "publish_time: {:.5f}".format(publish_time - policy_time),
                 "total time: {:.5f}".format(publish_time - start_time)
@@ -276,50 +298,25 @@ def main(args):
     base_model = torch.jit.load(os.path.join(save_folder, "1121-dream-BEV-6144envs-distill-teacher-heightcutoff0.05-zreparameterise-originalactorinput-deltadepthlatent-estimatornoyaw-delta-vision-delta-scandot-rnn-combmlp0yawmask-raico-8000-single_inference.pt"), map_location=device)
     base_model.eval()
 
-    # estimator = base_model.estimator
-    # actor_critic = base_model.actor_critic
-
-
-    
-    # estimator = base_model.estimator.estimator
-    # hist_encoder = base_model.actor.history_encoder
-    # actor = base_model.actor.actor_backbone
-
-    # vision_model = torch.load(os.path.join(save_folder, "0525-distill-policy-gaussian-noise-raico-9500-vision_weight.pt"), map_location=device)
-    # depth_backbone = DepthOnlyFCBackbone58x87(None, 32, 512)
-    # depth_encoder = RecurrentDepthBackbone(depth_backbone, None).to(device)
-    # depth_encoder.load_state_dict(vision_model['depth_encoder_state_dict'])
-    # depth_encoder.to(device)
-    # depth_encoder.eval()
-
 
     zero_act_model = ZeroActModel()
     zero_act_model = torch.jit.script(zero_act_model)
     zero_act_model.to(device)
     zero_act_model.eval()
 
-    def turn_obs(obs, depth_image):
+    def base_model_act(obs, depth_image):
 
         actions = base_model(obs, depth_image)
 
         return actions
 
-    # def encode_depth(depth_image, proprio):
-    #     depth_latent_yaw = depth_encoder(depth_image, proprio)
-    #     if torch.isnan(depth_latent_yaw).any():
-    #         print('depth_latent_yaw contains nan and the depth image is: ', depth_image)
-    #     return depth_latent_yaw
-    
-    # def actor_model(obs):
-    #     action = actor(obs)
-    #     return action
     
     def stand_model(obs):
         action = zero_act_model(obs)
         return action
     
 
-    env_node.register_models(stand_model=stand_model, turn_obs=turn_obs)
+    env_node.register_models(stand_model=stand_model, base_model_act=base_model_act)
 
     env_node.start_ros_handlers()
     env_node.warm_up()
