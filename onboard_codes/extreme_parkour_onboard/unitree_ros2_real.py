@@ -362,6 +362,7 @@ class UnitreeRos2Real(Node):
     def _sport_mode_state_callback(self, msg):
         """ store and handle proprioception data """
         self.sport_mode_state_buffer = msg # keep the latest sport mode state
+        # print("msg is ", msg)
 
     def _sport_state_change(self, mode):
         msg = Request()
@@ -383,8 +384,10 @@ class UnitreeRos2Real(Node):
         msg.binary = []
 
         # Publish the request
-        self.sport_state_pub.publish(msg)
+        # self.sport_state_pub.publish(msg)
+        self.sport_mode_pub.publish(msg)
         # self.get_logger().info(f"Request sent: {msg}")
+    
 
 
     def _sport_mode_change(self, mode):
@@ -560,8 +563,8 @@ class UnitreeRos2Real(Node):
         commands = self._get_commands_obs()  # (1, 3)
         commands_time = time.monotonic()
 
-        parkour_walk = torch.tensor([[1, 0]], device= self.model_device, dtype= torch.float32) # parkour
-        # parkour_walk = torch.tensor([[0, 1]], device= self.model_device, dtype= torch.float32) # walk
+        # parkour_walk = torch.tensor([[1, 0]], device= self.model_device, dtype= torch.float32) # parkour
+        parkour_walk = torch.tensor([[0, 1]], device= self.model_device, dtype= torch.float32) # walk
 
         dof_pos = self._get_dof_pos_obs()  # (1, 12)
         dof_pos_time = time.monotonic()
@@ -606,10 +609,13 @@ class UnitreeRos2Real(Node):
     
     def _get_obs(self):
         proprio = self._get_proprio()     #[1, 53]
+        # print("proprio shape is ", proprio.shape)
         scandots = torch.zeros(1, 132, device=self.model_device, dtype=torch.float32)     #[1, 132]
         priv_explict = torch.zeros(1, 9, device=self.model_device, dtype=torch.float32)   #[1, 9]
         priv_latent = torch.zeros(1, 29, device=self.model_device, dtype=torch.float32)   #[1, 29]
         history_proprio = self._get_history_proprio()   #[1, 10, 53]
+        history_proprio = history_proprio.view(1, -1)
+        # print("history_proprio shape is ", history_proprio.shape)
 
         obs = torch.cat([proprio, scandots, priv_explict, priv_latent, history_proprio], dim=-1)  #[1, 53+132+9+29=223]
         return obs

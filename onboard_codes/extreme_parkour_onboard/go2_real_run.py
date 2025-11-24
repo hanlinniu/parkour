@@ -68,6 +68,8 @@ class Go2Node(UnitreeRos2Real):
         self.global_counter = 0
         self.visual_update_interval = 5
 
+        self.depth_buffer_curr = None
+
         
     def register_models(self, stand_model, model_act, depth_encoder, base_model):
         self.stand_model = stand_model
@@ -88,6 +90,7 @@ class Go2Node(UnitreeRos2Real):
         )
 
     def _update_depth_buffer(self, new_depth):
+        new_depth = new_depth.unsqueeze(1)
         # new_depth: [1, H, W] (torch)
         if self.depth_buffer_curr is None:
             # First frame → duplicate
@@ -101,6 +104,8 @@ class Go2Node(UnitreeRos2Real):
         depth_stack = torch.cat(
             [self.depth_buffer_prev, self.depth_buffer_curr], dim=1
         )
+
+        # print("depth_stack shape ", depth_stack.shape)
         return depth_stack
 
 
@@ -133,6 +138,8 @@ class Go2Node(UnitreeRos2Real):
             actor_input = torch.cat((obs_student[:, :53], depth_latent, abs_vel, priv_latent), dim=-1)
 
             actions = self.base_model(actor_input)
+            
+            # print("actions is: ", actions)
 
             policy_time = time.monotonic()
 
@@ -165,6 +172,7 @@ class Go2Node(UnitreeRos2Real):
             if (self.joy_stick_buffer.keys & self.WirelessButtons.R1):
                 self.get_logger().info("R1 pressed, Switch to stand policy")
                 self.use_sport_mode = False
+                # self._sport_state_change(0)
                 self._sport_state_change(0)
                 self.use_stand_policy = True
                 self.use_parkour_policy = False
@@ -185,6 +193,8 @@ class Go2Node(UnitreeRos2Real):
                     # print("maximum dof error: {:.3f}".format(action.abs().max().item(), end= "\r"))
             # self.send_action(action / self.action_scale)
             self.send_action(action)
+
+            # self._sport_state_change(0)
 
         if (self.joy_stick_buffer.keys & self.WirelessButtons.Y):
             self.get_logger().info("Y pressed, use the parkour policy")
@@ -309,7 +319,7 @@ def main(args):
 
     vision_model = torch.load(os.path.join(save_folder, "1121-dream-192envs-student-0.75mhigh-scandotteachraycasting5887depthimage-NewDepthOnlyFCBackbone-alienware-raico2_14000_depth_encoder.pt"), map_location=device)
     # depth_backbone = DepthOnlyFCBackbone58x87(None, 32, 512)
-    depth_encoder = BEV_RecurrentDepthBackbone(53, 12, 10).to(device)
+    depth_encoder = BEV_RecurrentDepthBackbone().to(device)
     depth_encoder.load_state_dict(vision_model['depth_encoder_state_dict'])
     # depth_encoder.to(device)
     depth_encoder.eval()
@@ -348,7 +358,7 @@ def main(args):
         return action
     
 
-    env_node.register_models(stand_model=stand_model, model_act=model_act)
+    env_node.register_models(stand_model=stand_model, model_act=model_act, depth_encoder=depth_encoder, base_model = base_model)
 
     env_node.start_ros_handlers()
     env_node.warm_up()
