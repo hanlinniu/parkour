@@ -69,11 +69,11 @@ class Go2Node(UnitreeRos2Real):
         self.visual_update_interval = 5
 
         
-    def register_models(self, stand_model, turn_obs, depth_encode, policy):
+    def register_models(self, stand_model, model_act, depth_encoder, base_model):
         self.stand_model = stand_model
-        self.turn_obs = turn_obs
-        self.depth_encode = depth_encode
-        self.policy = policy
+        self.model_act = model_act
+        self.depth_encoder = depth_encoder
+        self.base_model = base_model
         
         self.use_stand_policy = False # Start with standing model
         self.use_parkour_policy = False
@@ -87,6 +87,23 @@ class Go2Node(UnitreeRos2Real):
             self.main_loop,
         )
 
+    def _update_depth_buffer(self, new_depth):
+        # new_depth: [1, H, W] (torch)
+        if self.depth_buffer_curr is None:
+            # First frame → duplicate
+            self.depth_buffer_curr = new_depth
+            self.depth_buffer_prev = new_depth
+        else:
+            self.depth_buffer_prev = self.depth_buffer_curr
+            self.depth_buffer_curr = new_depth
+
+        # Return stack [1,2,H,W]
+        depth_stack = torch.cat(
+            [self.depth_buffer_prev, self.depth_buffer_curr], dim=1
+        )
+        return depth_stack
+
+
     def warm_up(self):
         for _ in range(2):
             start_time = time.monotonic()
@@ -99,28 +116,35 @@ class Go2Node(UnitreeRos2Real):
             obs = self._get_obs()
 
             if self.global_counter % self.visual_update_interval == 0:
-                depth_image = self._get_depth_obs()
-                # depth_image = self._get_depth_image()
-                self.depth_latent_yaw = self.depth_encode(depth_image, proprio)
+                new_depth = self._get_depth_obs()        # [1, H, W]
+                depth_stack = self._update_depth_buffer(new_depth)   # [1, 2, H, W]
+            else:
+                depth_stack = torch.cat(
+                    [self.depth_buffer_prev, self.depth_buffer_curr], dim=1
+                )
 
             get_obs_time = time.monotonic()
 
-            obs = self.turn_obs(proprio, self.depth_latent_yaw, proprio_history, self.n_proprio, self.n_depth_latent, self.n_hist_len)
+            depth_latent, abs_vel, priv_latent, yaw  = self.depth_encoder(depth_stack, obs)
+            yaw = 1.5*yaw
+            obs_student = obs.clone()
+            obs_student [:, 6:8] = yaw
 
-            turn_obs_time = time.monotonic()
+            actor_input = torch.cat((obs_student[:, :53], depth_latent, abs_vel, priv_latent), dim=-1)
 
-            action = self.policy(obs)
+            actions = self.base_model(actor_input)
+
             policy_time = time.monotonic()
 
             publish_time = time.monotonic()
-            print("warm up: ",
-                "get proprio time: {:.5f}".format(get_pro_time - start_time),
-                "get hist pro time: {:.5f}".format(get_hist_pro_time - get_pro_time),
-                "get_depth time: {:.5f}".format(get_obs_time - get_hist_pro_time),
+            print(
+                "warm up: ",
+                # "get proprio time: {:.5f}".format(get_pro_time - start_time),
+                # "get hist pro time: {:.5f}".format(get_hist_pro_time - get_pro_time),
+                # "get_depth time: {:.5f}".format(get_obs_time - get_hist_pro_time),
                 "get obs time: {:.5f}".format(get_obs_time - start_time),
-                "turn_obs_time: {:.5f}".format(turn_obs_time - get_obs_time),
-                "policy_time: {:.5f}".format(policy_time - turn_obs_time),
-                "publish_time: {:.5f}".format(publish_time - policy_time),
+                "policy_time: {:.5f}".format(policy_time - start_time),
+                # "publish_time: {:.5f}".format(publish_time - policy_time),
                 "total time: {:.5f}".format(publish_time - start_time)
             )
         
@@ -190,19 +214,26 @@ class Go2Node(UnitreeRos2Real):
 
             obs = self._get_obs()
 
-            # print('proprioception: ', proprio)
-            # print('history proprioception: ', proprio_history)
-
             if self.global_counter % self.visual_update_interval == 0:
-                depth_image = self._get_depth_obs()
-                self.last_depth_image = depth_image
+                new_depth = self._get_depth_obs()        # [1, H, W]
+                depth_stack = self._update_depth_buffer(new_depth)   # [1, 2, H, W]
             else:
-                depth_image = self.last_depth_image
+                depth_stack = torch.cat(
+                    [self.depth_buffer_prev, self.depth_buffer_curr], dim=1
+                )
 
             get_obs_time = time.monotonic()
 
-            action = self.turn_obs(obs, self.last_depth_image)
+            depth_latent, abs_vel, priv_latent, yaw  = self.depth_encoder(depth_stack, obs)
+            yaw = 1.5*yaw
+            obs_student = obs.clone()
+            obs_student [:, 6:8] = yaw
+
+            actor_input = torch.cat((obs_student[:, :53], depth_latent, abs_vel, priv_latent), dim=-1)
+
+            action = self.base_model(actor_input)
             policy_time = time.monotonic()
+
             # print('action before clip and normalize: ', action)
 
             # action = self.actions_sim[self.sim_ite, :]
@@ -217,7 +248,6 @@ class Go2Node(UnitreeRos2Real):
                 # "get hist pro time: {:.5f}".format(get_hist_pro_time - get_pro_time),
                 # "get_depth time: {:.5f}".format(get_obs_time - get_hist_pro_time),
                 "get obs time: {:.5f}".format(get_obs_time - start_time),
-                # "turn_obs_time: {:.5f}".format(turn_obs_time - get_obs_time),
                 "policy_time: {:.5f}".format(policy_time - start_time),
                 # "publish_time: {:.5f}".format(publish_time - policy_time),
                 "total time: {:.5f}".format(publish_time - start_time)
@@ -273,11 +303,11 @@ def main(args):
 
     save_folder = os.path.expanduser("~/parkour/onboard_codes/extreme_parkour_onboard/traced")
 
-    base_model = torch.jit.load(os.path.join(save_folder, "1121-dream-192envs-student-0.75mhigh-scandotteachraycasting5887depthimage-NewDepthOnlyFCBackbone-alienware-raico2_depth_actor.pt"), map_location=device)
+    base_model = torch.jit.load(os.path.join(save_folder, "1121-dream-192envs-student-0.75mhigh-scandotteachraycasting5887depthimage-NewDepthOnlyFCBackbone-alienware-raico2_14000_depth_actor.pt"), map_location=device)
     base_model.eval()
 
 
-    vision_model = torch.load(os.path.join(save_folder, "1121-dream-192envs-student-0.75mhigh-scandotteachraycasting5887depthimage-NewDepthOnlyFCBackbone-alienware-raico2_depth_encoder.pt"), map_location=device)
+    vision_model = torch.load(os.path.join(save_folder, "1121-dream-192envs-student-0.75mhigh-scandotteachraycasting5887depthimage-NewDepthOnlyFCBackbone-alienware-raico2_14000_depth_encoder.pt"), map_location=device)
     # depth_backbone = DepthOnlyFCBackbone58x87(None, 32, 512)
     depth_encoder = BEV_RecurrentDepthBackbone(53, 12, 10).to(device)
     depth_encoder.load_state_dict(vision_model['depth_encoder_state_dict'])
@@ -290,7 +320,7 @@ def main(args):
     zero_act_model.to(device)
     zero_act_model.eval()
 
-    def turn_obs(obs, depth_image):
+    def model_act(obs, depth_image):
 
         depth_latent, abs_vel, priv_latent, yaw  = vision_model(depth_image, obs)
         yaw = 1.5*yaw
@@ -318,7 +348,7 @@ def main(args):
         return action
     
 
-    env_node.register_models(stand_model=stand_model, turn_obs=turn_obs)
+    env_node.register_models(stand_model=stand_model, model_act=model_act)
 
     env_node.start_ros_handlers()
     env_node.warm_up()
