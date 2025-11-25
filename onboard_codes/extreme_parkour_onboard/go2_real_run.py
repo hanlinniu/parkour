@@ -274,14 +274,14 @@ def main(args):
 
     save_folder = os.path.expanduser("~/parkour/onboard_codes/extreme_parkour_onboard/traced")
 
-    base_model = torch.jit.load(os.path.join(save_folder, "0525-distill-policy-gaussian-noise-raico-9500-base_jit.pt"), map_location=device)
+    base_model = torch.jit.load(os.path.join(save_folder, "0525-distill-policy-gaussian-noise-raico-45000-base_jit.pt"), map_location=device)
     base_model.eval()
     
     estimator = base_model.estimator.estimator
     hist_encoder = base_model.actor.history_encoder
     actor = base_model.actor.actor_backbone
 
-    vision_model = torch.load(os.path.join(save_folder, "0525-distill-policy-gaussian-noise-raico-9500-vision_weight.pt"), map_location=device)
+    vision_model = torch.load(os.path.join(save_folder, "0525-distill-policy-gaussian-noise-raico-45000-vision_weight.pt"), map_location=device)
     depth_backbone = DepthOnlyFCBackbone58x87(None, 32, 512)
     depth_encoder = RecurrentDepthBackbone(depth_backbone, None).to(device)
     depth_encoder.load_state_dict(vision_model['depth_encoder_state_dict'])
