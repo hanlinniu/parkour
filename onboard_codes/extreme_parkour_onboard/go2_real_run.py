@@ -214,13 +214,13 @@ class Go2Node(UnitreeRos2Real):
 
             publish_time = time.monotonic()
             print(
-                "get proprio time: {:.5f}".format(get_pro_time - start_time),
-                "get hist pro time: {:.5f}".format(get_hist_pro_time - get_pro_time),
-                "get_depth time: {:.5f}".format(get_obs_time - get_hist_pro_time),
+                # "get proprio time: {:.5f}".format(get_pro_time - start_time),
+                # "get hist pro time: {:.5f}".format(get_hist_pro_time - get_pro_time),
+                # "get_depth time: {:.5f}".format(get_obs_time - get_hist_pro_time),
                 "get obs time: {:.5f}".format(get_obs_time - start_time),
                 "turn_obs_time: {:.5f}".format(turn_obs_time - get_obs_time),
                 "policy_time: {:.5f}".format(policy_time - turn_obs_time),
-                "publish_time: {:.5f}".format(publish_time - policy_time),
+                # "publish_time: {:.5f}".format(publish_time - policy_time),
                 "total time: {:.5f}".format(publish_time - start_time)
             )
 
