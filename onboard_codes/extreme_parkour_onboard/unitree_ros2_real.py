@@ -384,8 +384,8 @@ class UnitreeRos2Real(Node):
         msg.binary = []
 
         # Publish the request
-        # self.sport_state_pub.publish(msg)
-        self.sport_mode_pub.publish(msg)
+        self.sport_state_pub.publish(msg)
+        # self.sport_mode_pub.publish(msg)
         # self.get_logger().info(f"Request sent: {msg}")
     
 
