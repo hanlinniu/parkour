@@ -113,10 +113,10 @@ class Go2Node(UnitreeRos2Real):
         for _ in range(2):
             start_time = time.monotonic()
 
-            proprio = self._get_proprio()
-            get_pro_time = time.monotonic()
-            proprio_history = self._get_history_proprio() 
-            get_hist_pro_time = time.monotonic()
+            # proprio = self._get_proprio()
+            # get_pro_time = time.monotonic()
+            # proprio_history = self._get_history_proprio() 
+            # get_hist_pro_time = time.monotonic()
 
             obs = self._get_obs()
 
@@ -135,7 +135,11 @@ class Go2Node(UnitreeRos2Real):
             obs_student = obs.clone()
             obs_student [:, 6:8] = yaw
 
+            depth_encoder_time = time.monotonic()
+
             actor_input = torch.cat((obs_student[:, :53], depth_latent, abs_vel, priv_latent), dim=-1)
+
+            policy_time_recorder = time.monotonic()
 
             actions = self.base_model(actor_input)
             
@@ -150,7 +154,8 @@ class Go2Node(UnitreeRos2Real):
                 # "get hist pro time: {:.5f}".format(get_hist_pro_time - get_pro_time),
                 # "get_depth time: {:.5f}".format(get_obs_time - get_hist_pro_time),
                 "get obs time: {:.5f}".format(get_obs_time - start_time),
-                "policy_time: {:.5f}".format(policy_time - start_time),
+                "depth encoder time: {:.5f}".format(depth_encoder_time - get_obs_time),
+                "policy_time: {:.5f}".format(policy_time - policy_time_recorder),
                 # "publish_time: {:.5f}".format(publish_time - policy_time),
                 "total time: {:.5f}".format(publish_time - start_time)
             )
@@ -239,8 +244,11 @@ class Go2Node(UnitreeRos2Real):
             obs_student = obs.clone()
             obs_student [:, 6:8] = yaw
 
+            depth_encoder_time = time.monotonic()
+
             actor_input = torch.cat((obs_student[:, :53], depth_latent, abs_vel, priv_latent), dim=-1)
 
+            policy_time_recorder = time.monotonic()
             action = self.base_model(actor_input)
             policy_time = time.monotonic()
 
@@ -258,7 +266,8 @@ class Go2Node(UnitreeRos2Real):
                 # "get hist pro time: {:.5f}".format(get_hist_pro_time - get_pro_time),
                 # "get_depth time: {:.5f}".format(get_obs_time - get_hist_pro_time),
                 "get obs time: {:.5f}".format(get_obs_time - start_time),
-                "policy_time: {:.5f}".format(policy_time - start_time),
+                "depth encoder time: {:.5f}".format(depth_encoder_time - get_obs_time),
+                "policy_time: {:.5f}".format(policy_time - policy_time_recorder),
                 # "publish_time: {:.5f}".format(publish_time - policy_time),
                 "total time: {:.5f}".format(publish_time - start_time)
             )
